@@ -22,4 +22,4 @@ Sanal otomatik alımı açmak için sunucunun ortamına `PAPER_AUTO=1` verip ser
 
 ## Binance hesabına para yatırma
 
-Panel, Binance’in kripto yatırma sayfasına ve Binance TR’nin TL yatırma rehberine yönlendirir. Yatırılan bakiye kullanıcının borsa hesabında kalır. Panel ve sanal sunucu kamu piyasa verisini okur. Borsa bakiyesi, API anahtarı ve gerçek emir bağlantısı kapalıdır.
+Panel, Binance’in kripto yatırma sayfasına ve Binance TR’nin yatırma ekranına yönlendirir. Yatırılan bakiye kullanıcının borsa hesabında kalır. Panel ve sanal sunucu kamu piyasa verisini okur. Borsa bakiyesi, API anahtarı ve gerçek emir bağlantısı kapalıdır. [Binance TR TL yatırma rehberi](https://www.binance.tr/tr/support/faq/deposit/binance-tr-uygulamas%C4%B1ndan-try-yat%C4%B1rma-170ea10b7c7140f7ad0286dcb939aa57)
