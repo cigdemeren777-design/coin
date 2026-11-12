@@ -4,21 +4,44 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Coin Tarayıcı · Araştırma</title>
-  <style>
-    *{box-sizing:border-box}
-    body{background:#0b1220;color:#e2e8f0;font:16px system-ui;max-width:1000px;margin:0 auto;padding:20px}
-    a,button{color:#82ebd5}button,select{background:#213347;padding:10px;border:1px solid #526b83;border-radius:8px;color:#e2e8f0}
-    button:disabled{opacity:.55}article{background:#152236;padding:16px;margin:16px 0;border-radius:12px}
-    .controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.scroll{overflow:auto}
-    table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:8px;border-bottom:1px solid #405069;white-space:nowrap}
-    canvas{width:100%;height:auto;background:#0b1220;border-radius:8px}small{color:#b8c9da}
-    .feed{border-bottom:1px solid #405069;padding:12px 0}.feed p{margin:8px 0}
-  </style>
+  <link rel="stylesheet" href="panel.css">
 </head>
 <body>
-
-  <h1>Araştırma ve kaynak masası</h1>
-  <p>Sanal spot araştırması · BTC/USDT ve ETH/USDT · GitHub’da yayımlanan saatlik Binance verisi</p>
+<main class="wrap">
+  <header class="masthead">
+    <div><h1>Coin Tarayıcı</h1><span class="mode">Sanal Spot</span></div>
+    <nav aria-label="Panel bölümleri"><a href="#market-chart">Grafik</a><a href="#live-signals">Şimdi Al</a><a href="#portfolio-test">Testler</a></nav>
+  </header>
+  <section class="summary" aria-label="Piyasa ve cüzdan özeti">
+    <div class="stat"><span>Bağlantı</span><strong id="live-status" role="status">Tarama kapalı.</strong></div>
+    <div class="stat"><span>Sanal cüzdan</span><strong id="live-wallet">—</strong></div>
+    <div class="stat"><span>Canlı tarama</span><strong id="live-coverage">Taramayı başlat.</strong></div>
+  </section>
+  <article id="market-chart" class="chart-card">
+    <div class="chart-head">
+      <div><h2>Fiyat grafiği</h2><p id="chart-price" class="chart-price">—</p></div>
+      <div class="controls"><label>Parite
+        <input id="chart-symbol" list="chart-pairs" value="BTCUSDT" autocomplete="off" spellcheck="false">
+        <datalist id="chart-pairs"><option value="BTCUSDT"><option value="ETHUSDT"></datalist>
+      </label><button id="chart-load" type="button">Grafiği aç</button></div>
+    </div>
+    <div class="controls timeframes" id="chart-timeframes" aria-label="Zaman aralığı">
+      <button type="button" data-timeframe="1m">1 dk</button>
+      <button type="button" data-timeframe="5m">5 dk</button>
+      <button type="button" data-timeframe="15m">15 dk</button>
+      <button type="button" data-timeframe="1h" aria-pressed="true">1 sa</button>
+      <button type="button" data-timeframe="4h">4 sa</button>
+      <button type="button" data-timeframe="1d">1 gün</button>
+      <button type="button" data-timeframe="1w">1 hafta</button>
+    </div>
+    <p id="chart-ohlc" class="ohlc" aria-label="Mum fiyatları">Açılış — · Yüksek — · Düşük — · Kapanış —</p>
+    <div id="candle-chart" aria-label="Etkileşimli mum ve hacim grafiği"></div>
+    <div class="chart-footer">
+      <p><span class="legend ema20">EMA20</span><span class="legend ema50">EMA50</span><span class="legend volume">Hacim</span></p>
+      <p id="chart-status" role="status">Binance mumları yükleniyor…</p>
+      <a class="chart-credit" href="https://www.tradingview.com/" target="_blank" rel="noopener noreferrer">TradingView Lightweight Charts™</a>
+    </div>
+  </article>
   <article>
     <h2>Canlı Spot Tarama</h2>
     <p>Binance Spot USDT pariteleri saatlik mum kapanışından sonra taranır. Adayların ve açık işlemlerin fiyatı yaklaşık dört saniyede bir yenilenir.</p>
@@ -26,23 +49,20 @@
       <button id="live-start" type="button">Taramayı başlat</button>
       <label><input id="live-auto" type="checkbox"> Sinyalde otomatik sanal alım</label>
     </div>
-    <p id="live-status" role="status"></p>
-    <p id="live-coverage"></p>
     <details><summary>Taranan coinler</summary>
       <label>Coin ara <input id="live-search" type="search" placeholder="Örn. SOL"></label>
       <p id="live-universe-count">Taramayı başlatınca liste gelir.</p>
       <ul id="live-universe-list" style="max-height:15rem;overflow:auto"></ul>
     </details>
-    <p id="live-wallet"></p>
     <p>Bu cihazdaki sanal cüzdan 1.000 USDT ile başlar. Tarama açık ve sayfa görünürken stop ve hedefler izlenir.</p>
     <h3>Şimdi Al</h3>
-    <div id="live-signals"></div>
+    <div id="live-signals" class="trade-grid"></div>
     <h3>Açık sanal işlemler</h3>
-    <div id="live-positions"></div>
+    <div id="live-positions" class="trade-grid"></div>
     <details><summary>Son kapanan işlemler</summary><div id="live-trades"></div></details>
   </article>
-  <article>
-    <h2>Portföy testi</h2>
+  <article id="portfolio-test">
+    <h2>Portföy testi · BTC/ETH</h2>
     <p>1.000 USDT başlangıç nakdi, en fazla iki pozisyon. Varsayılan alış ve satış ücreti %0,10, kayma %0,05. Aynı mumda stop ve hedef görülürse stop önceliklidir.</p>
     <div class="controls">
       <button id="load">GitHub verisini al</button>
@@ -69,9 +89,12 @@
     <p id="news-status" role="status"></p>
     <div id="news-list"></div>
   </article>
+</main>
   <script src="mobile-news.js"></script>
   <script src="core.js"></script>
   <script src="live-paper.js"></script>
+  <script src="lwc.js"></script>
+  <script src="market-chart.js"></script>
   <script src="live-paper-ui.js"></script>
   <script src="research.js"></script>
   <script src="experiments.js"></script>

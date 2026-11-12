@@ -6,6 +6,16 @@
   let wallet, monitor;
   let listed = [];
 
+  function chartButton(symbol) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = 'Grafik';
+    button.setAttribute('aria-label', symbol + ' grafiğini aç');
+    button.addEventListener('click', () =>
+      document.dispatchEvent(new CustomEvent('coin-chart-open', {detail:symbol})));
+    return button;
+  }
+
   function renderUniverse() {
     const term = el('live-search').value.trim().toUpperCase();
     const shown = listed.filter(symbol => symbol.toUpperCase().includes(term));
@@ -14,13 +24,14 @@
     for (const symbol of shown) {
       const entry = document.createElement('li');
       entry.textContent = symbol.slice(0, -4) + '/USDT';
+      entry.append(chartButton(symbol));
       list.append(entry);
     }
     el('live-universe-count').textContent = shown.length + '/' + listed.length + ' parite';
   }
   el('live-search').addEventListener('input', renderUniverse);
 
-  function item(parent, text, action) {
+  function item(parent, text, action, symbol) {
     const row = document.createElement('p');
     row.textContent = text;
     if (action) {
@@ -30,6 +41,7 @@
       button.addEventListener('click', action.run);
       row.append(' ', button);
     }
+    if (symbol) row.append(' ', chartButton(symbol));
     parent.append(row);
   }
 
@@ -37,10 +49,14 @@
     const now = Date.now();
     const fresh = !error && Object.values(quotes).some(quote => LivePaper.usable(quote, now));
     el('live-status').textContent = error || (fresh ? 'Binance fiyatı alındı · ' + new Date(now).toLocaleTimeString('tr-TR') : 'Bağlanıyor…');
-    if (market?.symbols && market.symbols !== listed) {
+    const listChanged = market?.symbols && market.symbols !== listed;
+    if (listChanged) {
       listed = market.symbols;
       renderUniverse();
     }
+    document.dispatchEvent(new CustomEvent('coin-chart-state', {
+      detail:{positions:state.positions, symbols:listChanged ? listed : null}
+    }));
     if (market?.total) {
       const checked = market.scanHour === Math.floor(now / LivePaper.hour) * LivePaper.hour;
       el('live-coverage').textContent = market.total + ' aktif parite · ' +
@@ -59,7 +75,7 @@
     if (!actionable.length) item(output, fresh ? market?.scanning ? 'Pariteler kontrol ediliyor.' : 'Şu an işlem koşullarını karşılayan sinyal yok.' : 'Güncel fiyat bekleniyor.');
     for (const signal of actionable) {
       item(output, signal.symbol + ' · Saatlik zirve kırılımı · alış ' + format(quotes[signal.symbol].ask),
-        {label: 'Sanal al', run: () => tryAction(() => monitor.buy(signal.symbol))});
+        {label: 'Sanal al', run: () => tryAction(() => monitor.buy(signal.symbol))}, signal.symbol);
     }
     const positions = el('live-positions');
     positions.replaceChildren();
@@ -67,7 +83,7 @@
     for (const p of state.positions) {
       item(positions, p.symbol + ' · Giriş ' + format(p.entry) + ' · Stop ' + format(p.stop) +
         ' · Hedef ' + format(p.target), LivePaper.usable(quotes[p.symbol], now)
-        ? {label: 'Sanal kapat', run: () => tryAction(() => monitor.sell(p.symbol))} : null);
+        ? {label: 'Sanal kapat', run: () => tryAction(() => monitor.sell(p.symbol))} : null, p.symbol);
     }
     const trades = el('live-trades');
     trades.replaceChildren();
