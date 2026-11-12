@@ -3,8 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://data-api.binance.vision; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>Coin Tarayıcı · Araştırma</title>
-  <link rel="stylesheet" href="panel.css?v=inline1">
+  <link rel="stylesheet" href="panel.css?v=wallet2">
 </head>
 <body>
 <main class="wrap">
@@ -24,6 +25,24 @@
       <button id="live-start" type="button">Taramayı başlat</button>
       <label><input id="live-auto" type="checkbox"> Sinyalde otomatik sanal alım</label>
     </div>
+    <form id="live-settings" class="wallet-settings">
+      <fieldset id="live-settings-fields">
+        <legend>Sanal işlem ayarları</legend>
+        <div class="controls">
+          <label for="live-max-positions">En fazla açık işlem</label>
+          <select id="live-max-positions">
+            <option value="1">1</option>
+            <option value="2" selected>2</option>
+            <option value="3">3</option>
+          </select>
+          <label for="live-order-cash">İşlem başına USDT</label>
+          <input id="live-order-cash" type="text" inputmode="decimal" value="100" autocomplete="off" required>
+          <button type="submit">Ayarları kaydet</button>
+        </div>
+        <p id="live-settings-active" class="ohlc">Açık işlem 0 / 2 · Yeni alım başına 100 USDT</p>
+        <p id="live-settings-status" class="ohlc" role="status"></p>
+      </fieldset>
+    </form>
     <details id="coin-search"><summary>Taranan coinler</summary>
       <label>Coin ara <input id="live-search" type="search" placeholder="Örn. SOL"></label>
       <p id="live-universe-count">Parite listesi otomatik yüklenir.</p>
@@ -68,7 +87,18 @@
     <div id="live-near-breakouts"></div>
     <h3>Açık sanal işlemler</h3>
     <div id="live-positions" class="trade-grid"></div>
-    <details><summary>Son kapanan işlemler</summary><div id="live-trades"></div></details>
+    <details><summary>Kapanan işlemler ve performans</summary>
+      <p id="live-performance"></p>
+      <div id="live-trades"></div>
+    </details>
+  </article>
+  <article aria-labelledby="funding-heading">
+    <h2 id="funding-heading">Binance hesabına para yatırma</h2>
+    <p>Yatırma işlemini kendi Binance hesabında tamamlarsın. Coin Tarayıcı’nın sanal cüzdanı ayrı çalışır. Binance bakiyesi ve gerçek emir bağlantısı kapalıdır.</p>
+    <div class="controls">
+      <a class="action-link" href="https://www.binance.com/en/my/wallet/account/main/deposit/crypto" target="_blank" rel="noopener noreferrer">Binance’te kripto yatır</a>
+      <a class="action-link" href="https://www.binance.tr/tr/support/faq/deposit/binance-tr-uygulamas%C4%B1ndan-try-yat%C4%B1rma-170ea10b7c7140f7ad0286dcb939aa57" target="_blank" rel="noopener noreferrer">Binance TR TL yatırma rehberi</a>
+    </div>
   </article>
   <article id="portfolio-test">
     <h2>Portföy testi · BTC/ETH</h2>
@@ -92,6 +122,13 @@
     <div id="folds"></div>
   </article>
   <article>
+    <h2>Canlı kırılım modeli testi</h2>
+    <p>BTC ve ETH’nin son 28 gününü 5 dakikalık Binance mumlarıyla simüle et. Canlı kuralı, son 6 saatte EMA50 yükselişi isteyen sürümle karşılaştır.</p>
+    <button id="live-replay-run" type="button" disabled>Canlı modeli geçmişte test et</button>
+    <p id="live-replay-status" role="status">Binance saatlik geçmişi bekleniyor.</p>
+    <div id="live-replay-results"></div>
+  </article>
+  <article>
     <h2>Resmî haberler ve ekonomi</h2>
     <p>Fed, ECB, BLS ve SEC başlıkları. GitHub’da yayımlanan son haber paketi otomatik kontrol edilir.</p>
     <button id="load-news">Haberleri yenile</button>
@@ -99,14 +136,15 @@
     <div id="news-list"></div>
   </article>
 </main>
-  <script src="mobile-news.js?v=auto1"></script>
+  <script src="mobile-news.js?v=wallet2"></script>
   <script src="core.js"></script>
-  <script src="live-paper.js?v=intrahour2"></script>
+  <script src="live-paper.js?v=wallet2"></script>
   <script src="lwc.js"></script>
   <script src="market-chart.js?v=inline1"></script>
-  <script src="live-paper-ui.js?v=inline1"></script>
+  <script src="live-paper-ui.js?v=wallet2"></script>
   <script src="research.js"></script>
   <script src="experiments.js"></script>
-  <script src="research-ui.js?v=auto1"></script>
+  <script src="live-replay.js?v=wallet2"></script>
+  <script src="research-ui.js?v=wallet2"></script>
 </body>
 </html>

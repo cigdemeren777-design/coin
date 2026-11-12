@@ -3,7 +3,7 @@
   const el = id => document.getElementById(id);
   const format = number => number == null ? '—' : number.toLocaleString('tr-TR', {maximumFractionDigits: 4});
   let active = true;
-  let wallet, monitor;
+  let wallet, monitor, savedWallet;
   let listed = [];
   let chartRow = null;
   const chart = el('market-chart');
@@ -128,8 +128,10 @@
           (market.failed ? ' · Veri hatası: ' + market.failed : '') : 'Canlı tarama için mumlar hazırlanıyor');
     }
     const equity = LivePaper.value(state, quotes, now);
-    el('live-wallet').textContent = 'Nakit ' + format(state.cash) + ' USDT · Cüzdan değeri ' +
+    el('live-wallet').textContent = 'Nakit ' + format(state.cash) + ' USDT · Tahmini cüzdan değeri ' +
       format(equity) + ' USDT' + (state.locked ? ' · %10 düşüş kilidi' : '');
+    el('live-settings-active').textContent = 'Açık işlem ' + state.positions.length + ' / ' + state.maxPositions +
+      ' · Yeni alım başına ' + format(state.orderCash) + ' USDT';
     const output = el('live-signals');
     const signalRows = [];
     const actionable = fresh && equity !== null && !state.locked ? signals.filter(signal =>
@@ -138,14 +140,16 @@
     if (!actionable.length) {
       let explanation = 'Şu an işlem koşullarını karşılayan sinyal yok.';
       if (!fresh) explanation = 'Güncel fiyat bekleniyor.';
+      else if (state.locked) explanation = 'Risk kilidi yeni sanal alımları durdurdu.';
+      else if (state.positions.length >= state.maxPositions) explanation = 'Açık sanal işlem sınırı dolu.';
+      else if (state.cash < state.orderCash) explanation = 'Yeni sanal alım için nakit yetersiz.';
+      else if (equity === null) explanation = 'Açık pozisyonun güncel fiyatı bekleniyor.';
       else if (market?.scanning) explanation = 'Paritelerin mum geçmişi kontrol ediliyor.';
       else if (stats && !stats.trend) explanation = 'Trend ve mum geçmişi koşullarını karşılayan parite yok.';
       else if (stats && !stats.quoted) explanation = 'Trendi uygun pariteler için güncel fiyat bekleniyor.';
       else if (stats && !stats.above) explanation = 'Trendi uygun coinlerden hiçbiri son 20 mumun zirvesini aşmadı.';
-      else if (stats?.walletBlocked) explanation = state.locked ? 'Risk kilidi yeni sanal alımları durdurdu.' :
-        equity === null ? 'Açık pozisyonun güncel fiyatı bekleniyor.' :
-        'Kırılım var. Bakiye, açık işlem sınırı veya aynı saatte tekrar alım kuralı nedeniyle bekleniyor.';
-      else if (stats && stats.above) explanation = 'Zirve aşıldı. Fiyat farkı, zirveden uzaklık veya sinyal süresi uygun değil.';
+      else if (stats?.walletBlocked) explanation = 'Kırılım var. Aynı parite için açık işlem veya saatlik tekrar kuralı kontrol ediliyor.';
+      else if (stats?.above) explanation = 'Kırılım var. Alış-satış farkı, likidite, zirveden uzaklık veya sinyal süresi uygun değil.';
       signalRows.push(item(explanation));
     }
     const detail = el('live-signal-detail');
@@ -154,6 +158,7 @@
     detail.textContent = fresh && stats ? stats.trend + ' trendi uygun · ' + stats.above + ' zirve üstünde' +
       (stats.spread ? ' · Alış-satış farkı yüksek: ' + stats.spread : '') +
       (stats.distance ? ' · Zirveden %0,5’ten fazla uzakta: ' + stats.distance : '') +
+      (stats.liquidity ? ' · Seçilen tutar için miktar yetersiz: ' + stats.liquidity : '') +
       (stats.expired ? ' · Süresi dolan: ' + stats.expired : '') +
       (stats.walletBlocked ? ' · Cüzdan kuralları: ' + stats.walletBlocked : '') : '';
     if (fresh && stats?.near.length) {
@@ -174,13 +179,22 @@
     const positionRows = [];
     if (!state.positions.length) positionRows.push(item('Açık sanal pozisyon yok.'));
     for (const p of state.positions) {
+      const quote = quotes[p.symbol];
+      const status = p.exitReason ? ' · ' + p.exitReason + ' tetiklendi, yeterli alış miktarı bekleniyor' :
+        LivePaper.usable(quote, now) && !LivePaper.canSell(p, quote, now) ? ' · Alış miktarı yetersiz' : '';
       positionRows.push(item(p.symbol + ' · Giriş ' + format(p.entry) + ' · Stop ' + format(p.stop) +
-        ' · Hedef ' + format(p.target), LivePaper.usable(quotes[p.symbol], now)
+        ' · Hedef ' + format(p.target) + status, LivePaper.canSell(p, quote, now)
         ? {label: 'Sanal kapat', run: () => tryAction(() => monitor.sell(p.symbol))} : null, p.symbol));
     }
     setRows(positions, positionRows);
     const trades = el('live-trades');
     trades.replaceChildren();
+    const profitable = state.trades.filter(t => t.pnl > 0).length;
+    const pnl = state.trades.reduce((total, t) => total + t.pnl, 0);
+    el('live-performance').textContent = state.trades.length
+      ? 'Kârla kapanan ' + profitable + ' / ' + state.trades.length + ' (%' +
+        format(100 * profitable / state.trades.length) + ') · Net sonuç ' + format(pnl) + ' USDT'
+      : 'Performansı hesaplamak için kapanan sanal işlem bekleniyor.';
     for (const t of state.trades.slice(0, 12)) {
       trades.append(item(t.symbol + ' · ' + t.reason + ' · ' + format(t.pnl) + ' USDT'));
     }
@@ -195,23 +209,42 @@
   }
 
   try {
-    const raw = localStorage.getItem(key);
-    wallet = raw ? LivePaper.restore(raw) : LivePaper.initial();
+    savedWallet = localStorage.getItem(key);
+    wallet = savedWallet ? LivePaper.restore(savedWallet) : LivePaper.initial();
     // Auto mode is always off when a new tab opens.
   } catch (error) {
     el('live-status').textContent = 'Sanal cüzdan açılamadı. ' + error.message;
     el('live-start').disabled = true;
     el('live-auto').disabled = true;
+    el('live-settings-fields').disabled = true;
     return;
   }
 
   monitor = LivePaper.monitor({
     state: wallet,
-    persist: state => localStorage.setItem(key, JSON.stringify(state)),
+    persist: state => {
+      if (localStorage.getItem(key) !== savedWallet) throw Error('Cüzdan başka sekmede değişti. Sayfayı yenile.');
+      const next = JSON.stringify(state);
+      localStorage.setItem(key, next);
+      savedWallet = next;
+    },
     onUpdate: render,
     automatic: () => active && !document.hidden && el('live-auto').checked
   });
   el('live-auto').checked = false;
+  el('live-max-positions').value = String(wallet.maxPositions);
+  el('live-order-cash').value = String(wallet.orderCash).replace('.', ',');
+  el('live-settings').addEventListener('submit', event => {
+    event.preventDefault();
+    const amount = el('live-order-cash').value.trim();
+    try {
+      if (!/^\d+([,.]\d{1,2})?$/.test(amount)) throw Error('Pozitif bir tutar yaz. Örnek 25,50.');
+      monitor.setSettings(Number(el('live-max-positions').value), Number(amount.replace(',', '.')));
+      el('live-settings-status').textContent = 'Kaydedildi. Yeni ayarlar sonraki alımlarda uygulanır.';
+    } catch (error) {
+      el('live-settings-status').textContent = error.message;
+    }
+  });
   el('live-start').textContent = 'Taramayı durdur';
   render({state: wallet, quotes: {}, signals: [], error: null});
   if (!document.hidden) monitor.start();
@@ -234,7 +267,9 @@
     active = false;
     monitor.stop();
     el('live-auto').checked = false;
+    el('live-auto').disabled = true;
     el('live-start').disabled = true;
+    el('live-settings-fields').disabled = true;
     el('live-status').textContent = 'Cüzdan başka sekmede değişti. Devam etmek için bu sayfayı yenile.';
   });
 })();

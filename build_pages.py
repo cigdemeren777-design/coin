@@ -10,7 +10,7 @@ from providers import FEEDS, HOUR, feed_items, get, market_bars
 
 ROOT = Path(__file__).resolve().parent
 FILES = ("index.html", "core.js", "research.js", "experiments.js", "research-ui.js", "mobile-news.js",
-         "live-paper.js", "live-paper-ui.js", "panel.css", "lwc.js", "market-chart.js",
+         "live-paper.js", "live-paper-ui.js", "live-replay.js", "panel.css", "lwc.js", "market-chart.js",
          "LIGHTWEIGHT_CHARTS_LICENSE.txt", "LIGHTWEIGHT_CHARTS_NOTICE.txt")
 
 

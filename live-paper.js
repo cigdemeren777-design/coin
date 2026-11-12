@@ -6,23 +6,39 @@ const LivePaper = (() => {
   const hour = 3600000;
   const signalWindow = 5 * 60000;
   const pollInterval = 6000;
-  const fee = .001, slip = .0005, initialCash = 1000, orderCash = 100;
+  const fee = .001, slip = .0005, initialCash = 1000;
+  const defaultMaxPositions = 2, defaultOrderCash = 100;
+  const exitReasons = new Set(['Stop', 'Hedef', 'Süre doldu']);
   const endpoint = 'https://data-api.binance.vision/api/v3/';
   const clockHour = now => Math.floor(now / hour) * hour;
-  const initial = () => ({version: 1, cash: initialCash, positions: [], trades: [], seen: {}, peak: initialCash, locked: false});
+  const number = value => typeof value === 'number' || (typeof value === 'string' && value.trim()) ?
+    Number(value) : NaN;
+  const initial = () => ({version: 1, cash: initialCash, positions: [], trades: [], seen: {},
+    peak: initialCash, locked: false, maxPositions: defaultMaxPositions, orderCash: defaultOrderCash});
+
+  function validSettings(maxPositions, orderCash) {
+    const cents = Math.round(orderCash * 100);
+    return [1, 2, 3].includes(maxPositions) && Number.isSafeInteger(cents) &&
+      cents > 0 && orderCash === cents / 100;
+  }
 
   function restore(raw) {
     const state = JSON.parse(raw);
     const validMoney = value => Number.isFinite(value) && value >= 0;
     if (state?.version !== 1 || !validMoney(state.cash) || !validMoney(state.peak) ||
         typeof state.locked !== 'boolean' || !Array.isArray(state.positions) ||
-        !Array.isArray(state.trades) || !state.seen || state.positions.length > 2 ||
-        new Set(state.positions.map(position => position.symbol)).size !== state.positions.length ||
-        state.positions.some(p => !isUsdtSymbol(p.symbol) ||
-          ![p.entry, p.qty, p.stop, p.target, p.cost, p.openedAt].every(x => validMoney(x) && x > 0))) {
+        !Array.isArray(state.trades) || !state.seen || typeof state.seen !== 'object' ||
+        Array.isArray(state.seen) || state.positions.length > 3 ||
+        new Set(state.positions.map(position => position?.symbol)).size !== state.positions.length ||
+        state.positions.some(p => !isUsdtSymbol(p?.symbol) ||
+          ![p.entry, p.qty, p.stop, p.target, p.cost, p.openedAt].every(x => validMoney(x) && x > 0) ||
+          !(p.stop < p.entry && p.entry < p.target) ||
+          (p.exitReason !== undefined && !exitReasons.has(p.exitReason)))) {
       throw Error('Sanal cüzdan kaydı geçersiz.');
     }
-    return state;
+    const {maxPositions = defaultMaxPositions, orderCash = defaultOrderCash} = state;
+    if (!validSettings(maxPositions, orderCash)) throw Error('Sanal cüzdan ayarları geçersiz.');
+    return {...state, maxPositions, orderCash};
   }
 
   function setupFor(symbol, bars, now) {
@@ -36,7 +52,7 @@ const LivePaper = (() => {
     const data = indicators.prepare(bars);
     if (!(data.ema50.at(-1) > data.ema200.at(-1) && last.v > 0)) return null;
     const level = Math.max(...bars.slice(-20).map(bar => bar.h));
-    return {symbol, closedAt, level, atr: data.atr.at(-1)};
+    return {symbol, closedAt, level, atr: data.atr.at(-1), risingTrend: data.ema50.at(-1) > data.ema50.at(-7)};
   }
 
   function signalFor(setup, quote, now, firstAbove) {
@@ -50,10 +66,19 @@ const LivePaper = (() => {
     };
   }
 
-  function parseBars(rows, now) {
+  function parseBars(rows, now, step = hour) {
     if (!Array.isArray(rows)) throw Error('Binance mum yanıtı geçersiz.');
-    return rows.filter(row => Array.isArray(row) && row[6] < now && row[6] === row[0] + hour - 1)
-      .map(row => ({t: row[0], ...Object.fromEntries('ohlcv'.split('').map((key, i) => [key, Number(row[i + 1])]))}));
+    const bars = [];
+    for (const row of rows) {
+      if (!Array.isArray(row) || !Number.isSafeInteger(row[0]) || row[0] % step !== 0 ||
+          row[6] !== row[0] + step - 1) throw Error('Binance mum zamanı geçersiz.');
+      if (row[6] >= now) continue;
+      const [o, h, l, c, v] = row.slice(1, 6).map(number);
+      if (![o, h, l, c, v].every(Number.isFinite) || l <= 0 || h < Math.max(o, c) ||
+          l > Math.min(o, c) || v < 0) throw Error('Binance mum fiyatı veya hacmi geçersiz.');
+      bars.push({t:row[0], o, h, l, c, v});
+    }
+    return bars;
   }
 
   function parseUniverse(data) {
@@ -68,7 +93,8 @@ const LivePaper = (() => {
   function parseQuotes(rows, at) {
     if (!Array.isArray(rows)) throw Error('Binance alış/satış fiyatı alınamadı.');
     return Object.fromEntries(rows.filter(row => row && isUsdtSymbol(row.symbol)).flatMap(row => {
-      const quote = {bid: Number(row.bidPrice), ask: Number(row.askPrice), at};
+      const quote = {bid: number(row.bidPrice), ask: number(row.askPrice),
+        bidQty: number(row.bidQty), askQty: number(row.askQty), at};
       return usable(quote, at) ? [[row.symbol, quote]] : [];
     }));
   }
@@ -95,9 +121,24 @@ const LivePaper = (() => {
     return null;
   }
 
-  function evaluateMarket(setups, quotes, firstEligible, at) {
+  function entryTerms(quote, amount) {
+    const entry = quote.ask * (1 + slip);
+    return {entry, qty:amount / (entry * (1 + fee))};
+  }
+
+  const covers = (available, needed) => Number.isFinite(available) && available >= needed;
+  function hasEntryLiquidity(quote, amount) {
+    const {qty} = entryTerms(quote, amount);
+    return qty > 0 && covers(quote.askQty, qty) && covers(quote.bidQty, qty);
+  }
+
+  function canSell(position, quote, now) {
+    return usable(quote, now) && covers(quote.bidQty, position.qty);
+  }
+
+  function evaluateMarket(setups, quotes, firstEligible, at, amount = defaultOrderCash) {
     const signals = [], near = [];
-    const stats = {trend:0, quoted:0, above:0, spread:0, distance:0, expired:0};
+    const stats = {trend:0, quoted:0, above:0, spread:0, distance:0, liquidity:0, expired:0};
     for (const [symbol, setup] of setups) {
       if (setup.closedAt !== clockHour(at)) continue;
       stats.trend++;
@@ -117,31 +158,34 @@ const LivePaper = (() => {
       }
       if (!firstEligible.has(symbol)) firstEligible.set(symbol, at);
       const signal = signalFor(setup, quote, at, firstEligible.get(symbol));
-      if (signal) signals.push(signal);
-      else stats.expired++;
+      if (!signal) stats.expired++;
+      else if (!hasEntryLiquidity(quote, amount)) stats.liquidity++;
+      else signals.push(signal);
     }
+    signals.sort((a, b) => firstEligible.get(a.symbol) - firstEligible.get(b.symbol) ||
+      (a.symbol < b.symbol ? -1 : 1));
     near.sort((a, b) => a.remainingPct - b.remainingPct);
     return {signals, stats:{...stats, near:near.slice(0, 3)}};
   }
 
   function canBuy(state, signal, quote, now) {
-    if (!signal || signal.closedAt !== clockHour(now) || now >= signal.expires ||
+    if (!signal || signal.closedAt !== clockHour(now) || !Number.isFinite(signal.expires) || now >= signal.expires ||
         !usable(quote, now) || !Number.isFinite(signal.level) || quote.bid <= signal.level ||
-        state.locked || state.cash < orderCash || state.positions.length >= 2 ||
+        state.locked || state.cash < state.orderCash || state.positions.length >= state.maxPositions ||
         !isUsdtSymbol(signal.symbol) || state.positions.some(p => p.symbol === signal.symbol) ||
         state.seen[signal.symbol] >= signal.closedAt ||
         !Number.isFinite(signal.close) || signal.close <= 0 ||
         !Number.isFinite(signal.distance) || signal.distance <= 0 ||
-        priceBlock(signal.level, quote)) return false;
+        priceBlock(signal.level, quote) || !hasEntryLiquidity(quote, state.orderCash)) return false;
     return signal.distance < quote.ask * (1 + slip);
   }
 
   function buy(state, signal, quote, now) {
     if (!canBuy(state, signal, quote, now)) return false;
-    const entry = quote.ask * (1 + slip);
-    state.cash -= orderCash;
+    const {entry, qty} = entryTerms(quote, state.orderCash);
+    state.cash -= state.orderCash;
     state.positions.push({
-      symbol: signal.symbol, entry, qty: orderCash / (entry * (1 + fee)), cost: orderCash,
+      symbol: signal.symbol, entry, qty, cost: state.orderCash,
       stop: entry - signal.distance, target: entry + 2 * signal.distance, openedAt: now
     });
     state.seen[signal.symbol] = signal.closedAt;
@@ -150,13 +194,15 @@ const LivePaper = (() => {
 
   function sell(state, symbol, quote, now, reason = 'Elle çıkış') {
     const index = state.positions.findIndex(p => p.symbol === symbol);
-    if (index < 0 || !usable(quote, now)) return false;
+    if (index < 0) return false;
     const position = state.positions[index];
+    if (!canSell(position, quote, now)) return false;
     const exit = quote.bid * (1 - slip);
     const proceeds = exit * position.qty * (1 - fee);
     state.positions.splice(index, 1);
     state.cash += proceeds;
-    state.trades.unshift({symbol, entry: position.entry, exit, pnl: proceeds - position.cost, at: now, reason});
+    state.trades.unshift({symbol, entry: position.entry, exit, cost: position.cost,
+      pnl: proceeds - position.cost, at: now, reason: position.exitReason || reason});
     return true;
   }
 
@@ -165,9 +211,14 @@ const LivePaper = (() => {
     for (const p of [...state.positions]) {
       const q = quotes[p.symbol];
       if (!usable(q, now)) continue;
-      const reason = q.bid <= p.stop ? 'Stop' : q.bid >= p.target ? 'Hedef' :
-        now - p.openedAt >= 48 * hour ? 'Süre doldu' : null;
-      if (reason) changed = sell(state, p.symbol, q, now, reason) || changed;
+      const reason = p.exitReason || (q.bid <= p.stop ? 'Stop' : q.bid >= p.target ? 'Hedef' :
+        now - p.openedAt >= 48 * hour ? 'Süre doldu' : null);
+      if (!reason) continue;
+      if (sell(state, p.symbol, q, now, reason)) changed = true;
+      else if (!p.exitReason) {
+        p.exitReason = reason;
+        changed = true;
+      }
     }
     const equity = value(state, quotes, now);
     if (equity !== null && equity > state.peak) {
@@ -190,22 +241,32 @@ const LivePaper = (() => {
   function monitor({persist, state = initial(), onUpdate, automatic = () => false, get = fetch, now = Date.now}) {
     let quotes = {}, signals = [], quoteDelay = pollInterval, busy = false, stopped = true;
     let marketDelayUntil = 0, timer, universe = [], universeAt = null, generation = 0;
-    let scan = null, signalStats = null;
+    let scan = null, signalStats = null, lastError = null;
     const histories = new Map();
     const setups = new Map();
     const firstEligible = new Map();
-    const report = error => onUpdate({
-      state, quotes, signals, error,
-      market: {
-        symbols: universe, total: universe.length, quoted: Object.keys(quotes).length, checked: scan?.checked ?? 0,
-        shortHistory: scan?.shortHistory ?? 0, failed: scan?.failed ?? 0, scanHour: scan?.hour ?? null,
-        scanning: !!scan?.running,
-        signalStats: signalStats && !error ? {
-          ...signalStats, walletBlocked: signals.filter(signal =>
-            value(state, quotes, now()) === null || !canBuy(state, signal, quotes[signal.symbol], now())).length
-        } : null
-      }
-    });
+    const report = (error = lastError) => {
+      lastError = error;
+      const timestamp = now();
+      const valued = value(state, quotes, timestamp) !== null;
+      onUpdate({
+        state, quotes, signals, error,
+        market: {
+          symbols: universe, total: universe.length, quoted: Object.keys(quotes).length, checked: scan?.checked ?? 0,
+          shortHistory: scan?.shortHistory ?? 0, failed: scan?.failed ?? 0, scanHour: scan?.hour ?? null,
+          scanning: !!scan?.running,
+          signalStats: signalStats && !error ? {
+            ...signalStats, walletBlocked: signals.filter(signal =>
+              !valued || !canBuy(state, signal, quotes[signal.symbol], timestamp)).length
+          } : null
+        }
+      });
+    };
+    function evaluate() {
+      const evaluated = evaluateMarket(setups, quotes, firstEligible, now(), state.orderCash);
+      signals = evaluated.signals;
+      signalStats = evaluated.stats;
+    }
     const change = mutation => {
       const next = restore(JSON.stringify(state));
       if (!mutation(next)) return false;
@@ -349,11 +410,8 @@ const LivePaper = (() => {
         if (stopped || token !== generation) return;
         quotes = freshQuotes;
         change(next => mark(next, quotes, now()));
-        if (!listingError) {
-          const evaluated = evaluateMarket(setups, quotes, firstEligible, now());
-          signals = evaluated.signals;
-          signalStats = evaluated.stats;
-        } else {
+        if (!listingError) evaluate();
+        else {
           signals = [];
           signalStats = null;
         }
@@ -392,20 +450,31 @@ const LivePaper = (() => {
         report('Tarama durdu.');
       },
       buy(symbol) {
-        const result = change(next => universe.includes(symbol) && universeAt !== null &&
+        const result = change(next => !stopped && !lastError && universe.includes(symbol) && universeAt !== null &&
           now() - universeAt <= 15 * 60000 && value(next, quotes, now()) !== null &&
           buy(next, signals.find(x => x.symbol === symbol), quotes[symbol], now()));
-        report(null);
+        report();
         return result;
       },
       sell(symbol) {
         const result = change(next => sell(next, symbol, quotes[symbol], now()));
-        report(null);
+        report();
         return result;
+      },
+      setSettings(maxPositions, orderCash) {
+        if (!validSettings(maxPositions, orderCash)) throw Error('Geçerli bir sınır ve USDT tutarı gir.');
+        change(next => {
+          if (next.maxPositions === maxPositions && next.orderCash === orderCash) return false;
+          next.maxPositions = maxPositions;
+          next.orderCash = orderCash;
+          return true;
+        });
+        if (!stopped && !lastError && Object.keys(quotes).length) evaluate();
+        report();
       }
     };
   }
 
-  return {isUsdtSymbol, hour, initial, restore, setupFor, signalFor, evaluateMarket, parseBars, parseUniverse, parseQuotes, mergeBars, canBuy, buy, sell, mark, value, usable, monitor};
+  return {isUsdtSymbol, hour, initial, restore, setupFor, signalFor, evaluateMarket, parseBars, parseUniverse, parseQuotes, mergeBars, canBuy, canSell, buy, sell, mark, value, usable, monitor};
 })();
 if (typeof module !== 'undefined') module.exports = LivePaper;

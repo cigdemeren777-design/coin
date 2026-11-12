@@ -32,6 +32,8 @@
         ' · Son kontrol ' + time(report.updatedAt) + (report.error ? ' · ' + report.error : '');
       rows('wallet', [
         'Nakit ' + fmt(state.cash) + ' USDT' + (state.locked ? ' · Risk kilidi açık' : ''),
+        'Açık işlem ' + state.positions.length + ' / ' + state.maxPositions +
+          ' · Yeni sanal alım başına ' + fmt(state.orderCash) + ' USDT',
         ...Object.entries(fresh ? report.quotes : {})
           .filter(([symbol]) => symbol === 'BTCUSDT' || symbol === 'ETHUSDT' ||
             state.positions.some(p => p.symbol === symbol) || report.signals.some(s => s.symbol === symbol))
@@ -43,7 +45,8 @@
         .map(s => s.symbol + ' · Canlı kırılım adayı · son geçerlilik ' + time(s.expires)),
         fresh ? 'Aktif aday yok.' : 'Güncel fiyat bekleniyor.');
       rows('positions', state.positions.map(p =>
-        p.symbol + ' · Giriş ' + fmt(p.entry) + ' · Stop ' + fmt(p.stop) + ' · Hedef ' + fmt(p.target)),
+        p.symbol + ' · Giriş ' + fmt(p.entry) + ' · Stop ' + fmt(p.stop) + ' · Hedef ' + fmt(p.target) +
+        (p.exitReason ? ' · ' + p.exitReason + ' tetiklendi, yeterli alış miktarı bekleniyor' : '')),
       'Açık sanal işlem yok.');
       rows('trades', state.trades.slice(0, 15).map(t =>
         t.symbol + ' · ' + t.reason + ' · ' + fmt(t.pnl) + ' USDT · ' + time(t.at)),

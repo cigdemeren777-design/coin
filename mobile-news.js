@@ -27,7 +27,7 @@
       list.replaceChildren();
       let available = 0;
       for (const source of data.sources) {
-        if (!Object.hasOwn(hosts, source.source)) continue;
+        if (!source || !Object.hasOwn(hosts, source.source)) continue;
         const group = document.createElement('details');
         group.dataset.source = source.source;
         group.open = open.has(source.source);
@@ -36,7 +36,7 @@
         let count = 0;
         if (source.status === 'ok' && Array.isArray(source.items)) {
           for (const item of source.items) {
-            if (typeof item.title !== 'string') continue;
+            if (typeof item?.title !== 'string') continue;
             let url;
             try { url = new URL(item.url); } catch (_) { continue; }
             const host = hosts[source.source];

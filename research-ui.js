@@ -172,10 +172,68 @@ function snapshotFrom(source) {
   return source;
 }
 
-async function getClosedBars(symbol, limit, endTime) {
-  const q = new URLSearchParams({symbol, interval:'1h', limit, endTime});
-  return LivePaper.parseBars(await request('https://data-api.binance.vision/api/v3/klines?' + q), Date.now());
+async function getClosedBars(symbol, limit, endTime, interval = '1h', step = researchHour) {
+  const q = new URLSearchParams({symbol, interval, limit, endTime});
+  return LivePaper.parseBars(await request('https://data-api.binance.vision/api/v3/klines?' + q), Date.now(), step);
 }
+
+function enableLiveReplay() {
+  const status = el('live-replay-status');
+  if (status.textContent === 'Binance saatlik geçmişi bekleniyor.') {
+    el('live-replay-run').disabled = false;
+    status.textContent = 'Binance verisi hazır.';
+  }
+}
+
+async function runLiveReplay() {
+  const snapshot = baseSnapshot;
+  const button = el('live-replay-run');
+  const status = el('live-replay-status');
+  const output = el('live-replay-results');
+  if (!snapshot) return;
+  button.disabled = true;
+  status.textContent = 'Binance 5 dakikalık mumları yükleniyor…';
+  try {
+    const perSymbol = 28 * 24 * researchHour / LiveReplay.step;
+    const fine = Object.fromEntries(await Promise.all(researchPairs.map(async symbol => {
+      let bars = [], end = snapshot.until - 1;
+      while (bars.length < perSymbol) {
+        const size = Math.min(1000, perSymbol - bars.length);
+        const page = await getClosedBars(symbol, size, end, '5m', LiveReplay.step);
+        if (page.length !== size || page.at(-1).t + LiveReplay.step !== end + 1) {
+          throw Error(symbol + ' için 5 dakikalık veri eksik.');
+        }
+        bars = page.concat(bars);
+        end = page[0].t - 1;
+      }
+      return [symbol, bars];
+    })));
+    const result = LiveReplay.compare(snapshot.data, fine);
+    if (report) report.liveReplay = result;
+    const rows = [];
+    for (const [period, models] of [['İlk %70', result.development], ['Son %30 · test', result.test]]) {
+      for (const [label, model] of [['Canlı kural', models.base], ['EMA50 eğim filtresi', models.emaSlope]]) {
+        rows.push([period, label, model.trades, format(model.winRate), format(model.expectancy),
+          format(model.returnPct), format(model.maxDrawdownPct), model.openPositions]);
+      }
+    }
+    output.replaceChildren();
+    renderTable(output, ['Dönem', 'Kural', 'Kapanan', 'Kârla kapanan %', 'Ort. net USDT', 'Getiri %', 'Düşüş %', 'Açık'], rows);
+    element('p', 'Model 1.000 USDT ile başlar ve en fazla iki adet 100 USDT sanal işlem açar. ' +
+      'Ücret ve kaymaya ek olarak %0,10 alış-satış farkı varsayılır. 5 dakikalık kapanışta görülen aday ' +
+      'sonraki mumun açılışında fiyat koşullarıyla yeniden kontrol edilir. Tarihsel emir defteri yoktur. ' +
+      'Getiri açık pozisyonları içerir. Kârla kapanan oranı kapanmış işlemlerden hesaplanır.', output);
+    const date = t => new Date(t).toISOString().slice(0, 16).replace('T', ' ');
+    status.textContent = 'Binance Spot · ' + date(result.start) + ' → ' + date(result.until) +
+      ' UTC · Test başlangıcı ' + date(result.holdout) + ' UTC.';
+  } catch (error) {
+    status.textContent = 'Canlı model testi tamamlanamadı. ' + error.message +
+      (output.children.length ? ' Önceki test tablosu ekranda.' : '');
+  } finally {
+    button.disabled = false;
+  }
+}
+el('live-replay-run').onclick = runLiveReplay;
 
 async function updateFromBinance(base, until) {
   const data = Object.fromEntries(await Promise.all(researchPairs.map(async symbol => {
@@ -232,11 +290,13 @@ async function refreshResearch(force = false) {
     try { live = await updateFromBinance(baseSnapshot, until); }
     catch (error) {
       if (!baseSnapshot) throw error;
+      enableLiveReplay();
       render(baseSnapshot.data, [], originOf(baseSnapshot, 'Son veri paketi · Binance güncellemesi alınamadı'));
       void runExperiment();
       return;
     }
     baseSnapshot = live;
+    enableLiveReplay();
     render(live.data, [], originOf(live, 'Binance Spot · otomatik güncelleme'));
     void runExperiment();
     refreshedHour = until;
