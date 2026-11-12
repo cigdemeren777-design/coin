@@ -2,7 +2,7 @@
 
 ## Safari
 
-Panelde **Canlı Spot Tarama → Taramayı başlat**. BTCUSDT ve ETHUSDT alış ve satış fiyatları yaklaşık dört saniyede bir Binance kamu API'sinden alınır. Kapanmış 1 saatlik mumda EMA50 > EMA200, kapanış son 20 mumun en yüksek fiyatından büyük ve hacim pozitif ise Şimdi Al adayı oluşur. Aday ilk beş dakika içinde ve alış fiyatı sinyalden en fazla %0,5 uzaktayken değerlendirilebilir. Spread sınırı %0,2. Aynı mum ve parite tekrar alınmaz.
+Panelde **Canlı Spot Tarama → Taramayı başlat**. Etkin Binance Spot USDT pariteleri borsa listesinden belirlenir. Saat başında tüm liste istek sınırına uyan gruplarla taranır. Aday ve açık pozisyon fiyatları yaklaşık dört saniyede bir yenilenir. İlk tarama her parite için geçmiş mumları topladığı için sonraki taramalardan daha fazla internet kullanır. Yeterli geçmişi olmayan yeni pariteler ve veri hataları ekranda sayılır. Kapanmış 1 saatlik mumda EMA50 > EMA200, kapanış son 20 mumun en yüksek fiyatından büyük ve hacim pozitif ise Şimdi Al adayı oluşur. Aday ilk beş dakika içinde ve alış fiyatı sinyalden en fazla %0,5 uzaktayken değerlendirilebilir. Spread sınırı %0,2. Aynı mum ve parite tekrar alınmaz.
 
 Her yeni sanal alım 100 USDT, azami iki açık pozisyon. Fiyat, spread, %0,10 ücret ve her yönde %0,05 kayma hesaba katılır. Stop girişe göre 2 ATR veya en az %0,8 uzakta. Hedef 2R ve süre sınırı 48 saat. Zirveye göre %10 cüzdan düşüşü yeni işlemleri kilitler. Cüzdan bu tarayıcıya aittir. Sayfa arka plana geçince tarama durur; o arada görülemeyen fiyatlar sonradan gerçekleşmiş işlem sayılmaz. Yayımlanmış saatlik veri paketi geçmiş test ekranına aittir; canlı tarama ayrı istekler kullanır.
 

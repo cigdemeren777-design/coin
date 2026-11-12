@@ -4,6 +4,21 @@
   const format = number => number == null ? '—' : number.toLocaleString('tr-TR', {maximumFractionDigits: 4});
   let active = false;
   let wallet, monitor;
+  let listed = [];
+
+  function renderUniverse() {
+    const term = el('live-search').value.trim().toUpperCase();
+    const shown = listed.filter(symbol => symbol.toUpperCase().includes(term));
+    const list = el('live-universe-list');
+    list.replaceChildren();
+    for (const symbol of shown) {
+      const entry = document.createElement('li');
+      entry.textContent = symbol.slice(0, -4) + '/USDT';
+      list.append(entry);
+    }
+    el('live-universe-count').textContent = shown.length + '/' + listed.length + ' parite';
+  }
+  el('live-search').addEventListener('input', renderUniverse);
 
   function item(parent, text, action) {
     const row = document.createElement('p');
@@ -18,18 +33,30 @@
     parent.append(row);
   }
 
-  function render({state, quotes, signals, error}) {
+  function render({state, quotes, signals, error, market}) {
     const now = Date.now();
-    const fresh = LivePaper.symbols.every(symbol => LivePaper.usable(quotes[symbol], now));
+    const fresh = !error && Object.values(quotes).some(quote => LivePaper.usable(quote, now));
     el('live-status').textContent = error || (fresh ? 'Binance fiyatı alındı · ' + new Date(now).toLocaleTimeString('tr-TR') : 'Bağlanıyor…');
+    if (market?.symbols && market.symbols !== listed) {
+      listed = market.symbols;
+      renderUniverse();
+    }
+    if (market?.total) {
+      const checked = market.scanHour === Math.floor(now / LivePaper.hour) * LivePaper.hour;
+      el('live-coverage').textContent = market.total + ' aktif parite · ' +
+        (checked ? market.checked + '/' + market.total + ' kontrol edildi' +
+          (market.scanning ? ' · Tarama sürüyor' : '') +
+          (market.shortHistory ? ' · Yetersiz geçmiş: ' + market.shortHistory : '') +
+          (market.failed ? ' · Veri hatası: ' + market.failed : '') : 'Saatlik kapanış taraması bekleniyor');
+    }
     const equity = LivePaper.value(state, quotes, now);
     el('live-wallet').textContent = 'Nakit ' + format(state.cash) + ' USDT · Cüzdan değeri ' +
       format(equity) + ' USDT' + (state.locked ? ' · %10 düşüş kilidi' : '');
     const output = el('live-signals');
     output.replaceChildren();
-    const actionable = fresh && !state.locked ? signals.filter(signal =>
+    const actionable = fresh && equity !== null && !state.locked ? signals.filter(signal =>
       LivePaper.buy(LivePaper.restore(JSON.stringify(state)), signal, quotes[signal.symbol], now)) : [];
-    if (!actionable.length) item(output, fresh ? 'Şu an işlem koşullarını karşılayan sinyal yok.' : 'Güncel fiyat bekleniyor.');
+    if (!actionable.length) item(output, fresh ? market?.scanning ? 'Pariteler kontrol ediliyor.' : 'Şu an işlem koşullarını karşılayan sinyal yok.' : 'Güncel fiyat bekleniyor.');
     for (const signal of actionable) {
       item(output, signal.symbol + ' · Saatlik zirve kırılımı · alış ' + format(quotes[signal.symbol].ask),
         {label: 'Sanal al', run: () => tryAction(() => monitor.buy(signal.symbol))});

@@ -1,7 +1,9 @@
 'use strict';
 const LivePaper = (() => {
   const indicators = typeof Core === 'undefined' ? require('./core') : Core;
-  const symbols = Object.freeze(['BTCUSDT', 'ETHUSDT']);
+  const referenceSymbols = ['BTCUSDT', 'ETHUSDT'];
+  const isUsdtSymbol = symbol => typeof symbol === 'string' && /^[\p{L}\p{N}]{1,40}USDT$/u.test(symbol);
+  const historySize = 250;
   const hour = 3600000;
   const signalWindow = 5 * 60000;
   const fee = .001, slip = .0005, initialCash = 1000, orderCash = 100;
@@ -16,7 +18,7 @@ const LivePaper = (() => {
         typeof state.locked !== 'boolean' || !Array.isArray(state.positions) ||
         !Array.isArray(state.trades) || !state.seen || state.positions.length > 2 ||
         new Set(state.positions.map(position => position.symbol)).size !== state.positions.length ||
-        state.positions.some(p => !symbols.includes(p.symbol) ||
+        state.positions.some(p => !isUsdtSymbol(p.symbol) ||
           ![p.entry, p.qty, p.stop, p.target, p.cost, p.openedAt].every(x => validMoney(x) && x > 0))) {
       throw Error('Sanal cüzdan kaydı geçersiz.');
     }
@@ -24,7 +26,7 @@ const LivePaper = (() => {
   }
 
   function candidate(symbol, bars, now) {
-    if (!symbols.includes(symbol) || bars.length < 250) return null;
+    if (!isUsdtSymbol(symbol) || bars.length < historySize) return null;
     const last = bars.at(-1);
     const closedAt = last.t + hour;
     if (closedAt !== clockHour(now) || now - closedAt >= signalWindow) return null;
@@ -43,12 +45,32 @@ const LivePaper = (() => {
       .map(row => ({t: row[0], ...Object.fromEntries('ohlcv'.split('').map((key, i) => [key, Number(row[i + 1])]))}));
   }
 
+  function parseUniverse(data) {
+    if (!Array.isArray(data?.symbols)) throw Error('Binance parite listesi geçersiz.');
+    const active = new Set(data.symbols.filter(row => row && row.status === 'TRADING' &&
+      row.quoteAsset === 'USDT' && row.isSpotTradingAllowed === true && isUsdtSymbol(row.symbol))
+      .map(row => row.symbol));
+    if (!active.size) throw Error('Aktif Spot USDT paritesi bulunamadı.');
+    return [...active].sort();
+  }
+
   function parseQuotes(rows, at) {
     if (!Array.isArray(rows)) throw Error('Binance alış/satış fiyatı alınamadı.');
-    const quotes = Object.fromEntries(rows.filter(row => symbols.includes(row.symbol)).map(row =>
-      [row.symbol, {bid: Number(row.bidPrice), ask: Number(row.askPrice), at}]));
-    if (!symbols.every(symbol => usable(quotes[symbol], at))) throw Error('Binance fiyat verisi eksik.');
-    return quotes;
+    return Object.fromEntries(rows.filter(row => row && isUsdtSymbol(row.symbol)).flatMap(row => {
+      const quote = {bid: Number(row.bidPrice), ask: Number(row.askPrice), at};
+      return usable(quote, at) ? [[row.symbol, quote]] : [];
+    }));
+  }
+
+  function contiguous(bars, end) {
+    return bars.length > 0 && bars.at(-1).t + hour === end &&
+      bars.every((bar, index) => index === 0 || bar.t - bars[index - 1].t === hour);
+  }
+
+  function mergeBars(previous, latest, end) {
+    const byTime = new Map([...previous, ...latest].map(bar => [bar.t, bar]));
+    const joined = [...byTime.values()].sort((a, b) => a.t - b.t).slice(-historySize);
+    return joined.length === historySize && contiguous(joined, end) ? joined : null;
   }
 
   function usable(quote, now) {
@@ -59,8 +81,9 @@ const LivePaper = (() => {
   function buy(state, signal, quote, now) {
     if (!signal || now < signal.closedAt || now >= signal.expires || !usable(quote, now) ||
         state.locked || state.cash < orderCash || state.positions.length >= 2 ||
-        !symbols.includes(signal.symbol) || state.positions.some(p => p.symbol === signal.symbol) ||
+        !isUsdtSymbol(signal.symbol) || state.positions.some(p => p.symbol === signal.symbol) ||
         state.seen[signal.symbol] >= signal.closedAt ||
+        !Number.isFinite(signal.close) || signal.close <= 0 ||
         !Number.isFinite(signal.distance) || signal.distance <= 0 ||
         quote.ask / signal.close > 1.005 || (quote.ask - quote.bid) / quote.ask > .002) return false;
     const entry = quote.ask * (1 + slip);
@@ -114,9 +137,18 @@ const LivePaper = (() => {
   }
 
   function monitor({persist, state = initial(), onUpdate, automatic = () => false, get = fetch, now = Date.now}) {
-    let quotes = {}, signals = [], lastHour = -1, quoteDelay = 4000, busy = false;
-    let marketDelayUntil = 0, nextBarTry = 0, timer, stopped = false;
-    const report = error => onUpdate({state, quotes, signals, error});
+    let quotes = {}, signals = [], quoteDelay = 4000, busy = false, stopped = true;
+    let marketDelayUntil = 0, timer, universe = [], universeAt = null, generation = 0;
+    let scan = null;
+    const histories = new Map();
+    const report = error => onUpdate({
+      state, quotes, signals, error,
+      market: {
+        symbols: universe, total: universe.length, quoted: Object.keys(quotes).length, checked: scan?.checked ?? 0,
+        shortHistory: scan?.shortHistory ?? 0, failed: scan?.failed ?? 0, scanHour: scan?.hour ?? null,
+        scanning: !!scan?.running
+      }
+    });
     const change = mutation => {
       const next = restore(JSON.stringify(state));
       if (!mutation(next)) return false;
@@ -136,47 +168,143 @@ const LivePaper = (() => {
       if (!response.ok) throw Error('Binance HTTP ' + response.status);
       return response.json();
     }
+
+    async function refreshUniverse(token) {
+      const updated = parseUniverse(await query('exchangeInfo', {permissions: 'SPOT', showPermissionSets: false}));
+      if (stopped || token !== generation) return;
+      universe = updated;
+      universeAt = now();
+      const active = new Set(universe);
+      signals = signals.filter(signal => active.has(signal.symbol));
+      for (const symbol of histories.keys()) {
+        if (!active.has(symbol)) histories.delete(symbol);
+      }
+    }
+
+    async function fetchHistory(symbol, end) {
+      const load = async limit => parseBars(await query('klines', {
+        symbol, interval: '1h', limit, endTime: end - 1
+      }), now());
+      const cached = histories.get(symbol);
+      if (cached) {
+        const joined = mergeBars(cached, await load(3), end);
+        if (joined) return joined;
+      }
+      const bars = await load(historySize);
+      if (!contiguous(bars, end)) throw Error('Saatlik mum verisi eksik.');
+      return bars;
+    }
+
+    async function scanMarket(run, pool, token) {
+      let cursor = 0;
+      let nextRequestAt = 0;
+      const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+      const valid = () => !stopped && token === generation && now() < run.hour + signalWindow &&
+        now() >= marketDelayUntil;
+      async function lane() {
+        while (cursor < pool.length && valid()) {
+          const symbol = pool[cursor++];
+          const scheduled = Math.max(Date.now(), nextRequestAt);
+          nextRequestAt = scheduled + 100;
+          if (scheduled > Date.now()) await delay(scheduled - Date.now());
+          if (!valid()) return;
+          try {
+            const bars = await fetchHistory(symbol, run.hour);
+            if (!valid()) return;
+            if (bars.length < historySize) run.shortHistory++;
+            else {
+              histories.set(symbol, bars);
+              const signal = candidate(symbol, bars, now());
+              if (signal) signals.push(signal);
+            }
+          } catch (_) {
+            if (!stopped && token === generation) run.failed++;
+          } finally {
+            if (!stopped && token === generation) run.checked++;
+          }
+        }
+      }
+      await Promise.all(Array.from({length: 8}, lane));
+      run.running = false;
+    }
+
+    function fetchQuotes() {
+      const active = new Set(universe);
+      const wanted = [...new Set([
+        ...referenceSymbols, ...state.positions.map(position => position.symbol),
+        ...signals.map(signal => signal.symbol)
+      ].filter(symbol => active.has(symbol)))];
+      if (!wanted.length) wanted.push(universe[0]);
+      const batches = [];
+      for (let offset = 0; offset < wanted.length; offset += 40) {
+        batches.push(query('ticker/bookTicker', {symbols: JSON.stringify(wanted.slice(offset, offset + 40))})
+          .then(rows => parseQuotes(rows, now())));
+      }
+      return Promise.all(batches).then(parts => {
+        const values = Object.assign({}, ...parts);
+        if (!Object.keys(values).length) throw Error('Binance fiyat verisi eksik.');
+        return values;
+      });
+    }
+
     async function tick() {
       if (busy || stopped) return;
+      const token = generation;
       busy = true;
       try {
-        const raw = await query('ticker/bookTicker', {symbols: JSON.stringify(symbols)});
         const at = now();
-        quotes = parseQuotes(raw, at);
-        if (stopped) return;
-        change(next => mark(next, quotes, at));
-        report(null);
-        const currentHour = clockHour(at);
-        if (currentHour !== lastHour && at >= nextBarTry) {
-          nextBarTry = at + 30000;
-          const result = await Promise.all(symbols.map(async symbol =>
-            parseBars(await query('klines', {symbol, interval: '1h', limit: 300, endTime: currentHour - 1}), now())));
-          if (stopped) return;
-          if (result.some(bars => bars.length < 250 || bars.at(-1).t + hour !== currentHour ||
-              bars.some((bar, i) => i && bar.t - bars[i - 1].t !== hour))) throw Error('Kapanmış saatlik mumlar eksik.');
-          signals = symbols.map((symbol, i) => candidate(symbol, result[i], now())).filter(Boolean);
-          lastHour = currentHour;
+        let listingError = null;
+        if (universeAt === null || at - universeAt > 15 * 60000) {
+          try { await refreshUniverse(token); }
+          catch (error) {
+            if (!universe.length) throw error;
+            listingError = error.message;
+          }
         }
+        if (stopped || token !== generation) return;
         signals = signals.filter(signal => now() < signal.expires);
-        if (automatic()) {
+        const freshQuotes = await fetchQuotes();
+        if (stopped || token !== generation) return;
+        quotes = freshQuotes;
+        change(next => mark(next, quotes, now()));
+        const currentHour = clockHour(now());
+        const age = now() - currentHour;
+        if (!listingError && scan?.hour !== currentHour && age >= 3000 && age < signalWindow) {
+          scan = {hour: currentHour, running: true, checked: 0, failed: 0, shortHistory: 0};
+          void scanMarket(scan, universe, token);
+        }
+        if (!listingError && automatic() && value(state, quotes, now()) !== null) {
           for (const signal of signals) change(next => buy(next, signal, quotes[signal.symbol], now()));
         }
         quoteDelay = 4000;
-        report(null);
+        report(listingError);
       } catch (error) {
+        if (stopped || token !== generation) return;
         quotes = {};
         quoteDelay = Math.min(30000, quoteDelay * 2);
         report(error.message);
       } finally {
         busy = false;
-        if (!stopped) timer = setTimeout(tick, Math.max(quoteDelay, marketDelayUntil - now()));
+        if (!stopped) timer = setTimeout(tick, token !== generation ? 0 :
+          Math.max(quoteDelay, marketDelayUntil - now()));
       }
     }
+
     return {
       start() { clearTimeout(timer); stopped = false; tick(); },
-      stop() { stopped = true; clearTimeout(timer); quotes = {}; report('Tarama durdu.'); },
+      stop() {
+        stopped = true;
+        generation++;
+        clearTimeout(timer);
+        quotes = {};
+        signals = [];
+        scan = null;
+        report('Tarama durdu.');
+      },
       buy(symbol) {
-        const result = change(next => buy(next, signals.find(x => x.symbol === symbol), quotes[symbol], now()));
+        const result = change(next => universe.includes(symbol) && universeAt !== null &&
+          now() - universeAt <= 15 * 60000 && value(next, quotes, now()) !== null &&
+          buy(next, signals.find(x => x.symbol === symbol), quotes[symbol], now()));
         report(null);
         return result;
       },
@@ -188,6 +316,6 @@ const LivePaper = (() => {
     };
   }
 
-  return {symbols, hour, initial, restore, candidate, parseBars, parseQuotes, buy, sell, mark, value, usable, monitor};
+  return {isUsdtSymbol, hour, initial, restore, candidate, parseBars, parseUniverse, parseQuotes, mergeBars, buy, sell, mark, value, usable, monitor};
 })();
 if (typeof module !== 'undefined') module.exports = LivePaper;

@@ -21,12 +21,18 @@
   <p>Sanal spot araştırması · BTC/USDT ve ETH/USDT · GitHub’da yayımlanan saatlik Binance verisi</p>
   <article>
     <h2>Canlı Spot Tarama</h2>
-    <p>BTC/USDT ve ETH/USDT · Fiyat yaklaşık dört saniyede bir yenilenir. Sinyal saatlik mum kapanışında hesaplanır.</p>
+    <p>Binance Spot USDT pariteleri saatlik mum kapanışından sonra taranır. Adayların ve açık işlemlerin fiyatı yaklaşık dört saniyede bir yenilenir.</p>
     <div class="controls">
       <button id="live-start" type="button">Taramayı başlat</button>
       <label><input id="live-auto" type="checkbox"> Sinyalde otomatik sanal alım</label>
     </div>
     <p id="live-status" role="status"></p>
+    <p id="live-coverage"></p>
+    <details><summary>Taranan coinler</summary>
+      <label>Coin ara <input id="live-search" type="search" placeholder="Örn. SOL"></label>
+      <p id="live-universe-count">Taramayı başlatınca liste gelir.</p>
+      <ul id="live-universe-list" style="max-height:15rem;overflow:auto"></ul>
+    </details>
     <p id="live-wallet"></p>
     <p>Bu cihazdaki sanal cüzdan 1.000 USDT ile başlar. Tarama açık ve sayfa görünürken stop ve hedefler izlenir.</p>
     <h3>Şimdi Al</h3>

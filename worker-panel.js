@@ -26,6 +26,9 @@
       const fresh = report.healthy && Date.now() - report.updatedAt < 20000;
       el('state').textContent = (fresh ? 'Tarama aktif' : 'Güncel fiyat yok') + ' · ' +
         (report.auto ? 'Otomatik sanal alım açık' : 'Sinyal takibi') +
+        (report.market?.total ? ' · ' + report.market.total + ' aktif parite' : '') +
+        (report.market?.scanHour === Math.floor(Date.now() / 3600000) * 3600000
+          ? ' · Kontrol ' + report.market.checked + '/' + report.market.total : '') +
         ' · Son kontrol ' + time(report.updatedAt) + (report.error ? ' · ' + report.error : '');
       rows('wallet', [
         'Nakit ' + fmt(state.cash) + ' USDT' + (state.locked ? ' · Risk kilidi açık' : ''),

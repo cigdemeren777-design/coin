@@ -66,8 +66,7 @@ const server = http.createServer((request, response) => {
     response.writeHead(404).end();
     return;
   }
-  const healthy = !latest.error && LivePaper.symbols.every(symbol =>
-    LivePaper.usable(latest.quotes[symbol], Date.now()));
+  const healthy = !latest.error && Object.values(latest.quotes).some(quote => LivePaper.usable(quote, Date.now()));
   const output = request.url === '/health'
     ? {healthy, mode: 'paper', auto, updatedAt: latest.updatedAt, error: latest.error}
     : {...latest, mode: 'paper', auto, healthy};

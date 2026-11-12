@@ -41,3 +41,48 @@ assert(loss.locked);
 assert(!P.buy(loss, {...signal, symbol:'ETHUSDT'}, quote, end + 2000));
 assert.throws(() => P.restore('{"version":1,"cash":-2}'));
 console.log('PASS: candle timing and gap, slippage and fee, stale prices, entry cap, duplicate prevention, stop, target, equity lock, wallet reload');
+
+const demoUniverse = {symbols: [
+  {symbol:'BTCUSDT', status:'TRADING', quoteAsset:'USDT', isSpotTradingAllowed:true},
+  {symbol:'SOLUSDT', status:'TRADING', quoteAsset:'USDT', isSpotTradingAllowed:true},
+  {symbol:'TESTUSDT', status:'HALT', quoteAsset:'USDT', isSpotTradingAllowed:true},
+  {symbol:'ETHEUR', status:'TRADING', quoteAsset:'EUR', isSpotTradingAllowed:true},
+  {symbol:'BADUSDT', status:'TRADING', quoteAsset:'USDT', isSpotTradingAllowed:false}
+]};
+assert.deepEqual(P.parseUniverse(demoUniverse), ['BTCUSDT','SOLUSDT']);
+assert(P.candidate('SOLUSDT', bars, end+2000));
+assert(!P.candidate('SOLEUR', bars, end+2000));
+assert.deepEqual(P.restore(JSON.stringify({...state, positions:[{...p, symbol:'SOLUSDT'}]})).positions[0].symbol, 'SOLUSDT');
+const next = {...bars.at(-1), t: end};
+assert.equal(P.mergeBars(bars, [next], end + P.hour).at(-1).t, end);
+assert.equal(P.mergeBars(bars, [], end + P.hour), null);
+
+(async () => {
+  let settle;
+  const complete = new Promise(resolve => { settle = resolve; });
+  const expiry = setTimeout(() => settle(null), 8000);
+  const requested = [];
+  const rawBars = bars.slice(-250).map(b => [b.t, b.o, b.h, b.l, b.c, b.v, b.t + P.hour - 1]);
+  const engine = P.monitor({
+    persist() {},
+    now: () => end + 7000,
+    get: async input => {
+      const url = new URL(input);
+      if (url.pathname.endsWith('/exchangeInfo')) return {ok:true, json:async () => demoUniverse};
+      if (url.pathname.endsWith('/bookTicker')) return {ok:true, json:async () =>
+        JSON.parse(url.searchParams.get('symbols')).map(symbol => ({symbol,bidPrice:'105.99',askPrice:'106'}))};
+      requested.push(url.searchParams.get('symbol'));
+      return {ok:true,json:async () => rawBars};
+    },
+    onUpdate: update => { if (update.market.checked === 2) settle(update); }
+  });
+  engine.start();
+  const update = await complete;
+  clearTimeout(expiry);
+  engine.stop();
+  assert(update && !update.error);
+  assert.deepEqual(requested, ['BTCUSDT','SOLUSDT']);
+  assert(update.signals.some(x => x.symbol === 'SOLUSDT'));
+  assert(update.quotes.SOLUSDT);
+  console.log('PASS: universe discovery, cross-market filtering, history cache, SOL scan and quote');
+})().catch(error => { console.error(error); process.exitCode = 1; });
