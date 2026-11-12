@@ -20,6 +20,22 @@
   <h1>Araştırma ve kaynak masası</h1>
   <p>Sanal spot araştırması · BTC/USDT ve ETH/USDT · GitHub’da yayımlanan saatlik Binance verisi</p>
   <article>
+    <h2>Canlı Spot Tarama</h2>
+    <p>BTC/USDT ve ETH/USDT · Fiyat yaklaşık dört saniyede bir yenilenir. Sinyal saatlik mum kapanışında hesaplanır.</p>
+    <div class="controls">
+      <button id="live-start" type="button">Taramayı başlat</button>
+      <label><input id="live-auto" type="checkbox"> Sinyalde otomatik sanal alım</label>
+    </div>
+    <p id="live-status" role="status"></p>
+    <p id="live-wallet"></p>
+    <p>Bu cihazdaki sanal cüzdan 1.000 USDT ile başlar. Tarama açık ve sayfa görünürken stop ve hedefler izlenir.</p>
+    <h3>Şimdi Al</h3>
+    <div id="live-signals"></div>
+    <h3>Açık sanal işlemler</h3>
+    <div id="live-positions"></div>
+    <details><summary>Son kapanan işlemler</summary><div id="live-trades"></div></details>
+  </article>
+  <article>
     <h2>Portföy testi</h2>
     <p>1.000 USDT başlangıç nakdi, en fazla iki pozisyon. Varsayılan alış ve satış ücreti %0,10, kayma %0,05. Aynı mumda stop ve hedef görülürse stop önceliklidir.</p>
     <div class="controls">
@@ -49,6 +65,8 @@
   </article>
   <script src="mobile-news.js"></script>
   <script src="core.js"></script>
+  <script src="live-paper.js"></script>
+  <script src="live-paper-ui.js"></script>
   <script src="research.js"></script>
   <script src="experiments.js"></script>
   <script src="research-ui.js"></script>

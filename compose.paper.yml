@@ -1,0 +1,12 @@
+services:
+  paper:
+    build:
+      context: .
+      dockerfile: Dockerfile.paper
+    restart: unless-stopped
+    environment:
+      PAPER_AUTO: "${PAPER_AUTO:-0}"
+    volumes:
+      - paper-wallet:/paper-data
+volumes:
+  paper-wallet:
