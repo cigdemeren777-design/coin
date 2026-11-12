@@ -1,0 +1,7 @@
+services:
+  paper:
+    environment:
+      PAPER_BIND: "0.0.0.0"
+      PAPER_PANEL_HOST: "${PAPER_PANEL_HOST:?Tailscale sunucu adresi gerekli}"
+    ports:
+      - "127.0.0.1:8766:8766"

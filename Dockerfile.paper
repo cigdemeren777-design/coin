@@ -1,6 +1,6 @@
 FROM node:24-bookworm-slim
 WORKDIR /app
-COPY core.js live-paper.js paper-worker.js ./
+COPY core.js live-paper.js paper-worker.js worker-panel.html worker-panel.js ./
 RUN mkdir /paper-data && chown node:node /paper-data
 USER node
 ENV PAPER_DATA_DIR=/paper-data

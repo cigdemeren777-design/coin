@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="tr">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Coin Tarayıcı · Sunucu</title>
+<style>
+body{background:#0b1220;color:#e2e8f0;font:16px system-ui;max-width:780px;margin:auto;padding:20px}
+section{background:#152236;border-radius:12px;padding:16px;margin:14px 0}
+h2{font-size:1.25rem;margin:0 0 8px}p{margin:8px 0;overflow-wrap:anywhere}
+</style>
+<h1>Sunucu sanal cüzdanı</h1>
+<p id="state" role="status">Sunucu durumu alınıyor…</p>
+<section><h2>Bakiye ve fiyatlar</h2><div id="wallet"></div></section>
+<section><h2>Şimdi Al</h2><div id="signals"></div></section>
+<section><h2>Açık sanal işlemler</h2><div id="positions"></div></section>
+<section><h2>Son kapanan işlemler</h2><div id="trades"></div></section>
+<script src="worker-panel.js"></script>
+</html>
