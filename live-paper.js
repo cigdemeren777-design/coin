@@ -1,11 +1,11 @@
 'use strict';
 const LivePaper = (() => {
   const indicators = typeof Core === 'undefined' ? require('./core') : Core;
-  const referenceSymbols = ['BTCUSDT', 'ETHUSDT'];
   const isUsdtSymbol = symbol => typeof symbol === 'string' && /^[\p{L}\p{N}]{1,40}USDT$/u.test(symbol);
   const historySize = 250;
   const hour = 3600000;
   const signalWindow = 5 * 60000;
+  const pollInterval = 6000;
   const fee = .001, slip = .0005, initialCash = 1000, orderCash = 100;
   const endpoint = 'https://data-api.binance.vision/api/v3/';
   const clockHour = now => Math.floor(now / hour) * hour;
@@ -25,18 +25,29 @@ const LivePaper = (() => {
     return state;
   }
 
-  function candidate(symbol, bars, now) {
+  function setupFor(symbol, bars, now) {
     if (!isUsdtSymbol(symbol) || bars.length < historySize) return null;
     const last = bars.at(-1);
     const closedAt = last.t + hour;
-    if (closedAt !== clockHour(now) || now - closedAt >= signalWindow) return null;
+    if (closedAt !== clockHour(now)) return null;
     if (bars.some((b, i) => ![b.t, b.o, b.h, b.l, b.c, b.v].every(Number.isFinite) ||
         b.l <= 0 || b.v < 0 || b.l > Math.min(b.o, b.c) || b.h < Math.max(b.o, b.c) ||
         (i > 0 && b.t - bars[i - 1].t !== hour))) return null;
     const data = indicators.prepare(bars);
-    if (!(data.ema50.at(-1) > data.ema200.at(-1) && last.c > data.hh.at(-1) && last.v > 0)) return null;
-    const distance = Math.max(data.atr.at(-1) * 2, last.c * .008);
-    return {symbol, closedAt, expires: closedAt + signalWindow, close: last.c, distance};
+    if (!(data.ema50.at(-1) > data.ema200.at(-1) && last.v > 0)) return null;
+    const level = Math.max(...bars.slice(-20).map(bar => bar.h));
+    return {symbol, closedAt, level, atr: data.atr.at(-1)};
+  }
+
+  function signalFor(setup, quote, now, firstAbove) {
+    if (!setup || setup.closedAt !== clockHour(now) || !usable(quote, now) ||
+        quote.bid <= setup.level || !Number.isFinite(firstAbove) || firstAbove > now ||
+        now - firstAbove >= signalWindow) return null;
+    return {
+      symbol: setup.symbol, closedAt: setup.closedAt, level: setup.level, close: setup.level,
+      expires: Math.min(firstAbove + signalWindow, setup.closedAt + hour),
+      distance: Math.max(setup.atr * 2, quote.ask * .008)
+    };
   }
 
   function parseBars(rows, now) {
@@ -78,16 +89,21 @@ const LivePaper = (() => {
       Number.isFinite(quote.bid) && Number.isFinite(quote.ask) && quote.bid > 0 && quote.ask >= quote.bid;
   }
 
-  function buy(state, signal, quote, now) {
-    if (!signal || now < signal.closedAt || now >= signal.expires || !usable(quote, now) ||
+  function canBuy(state, signal, quote, now) {
+    if (!signal || signal.closedAt !== clockHour(now) || now >= signal.expires ||
+        !usable(quote, now) || !Number.isFinite(signal.level) || quote.bid <= signal.level ||
         state.locked || state.cash < orderCash || state.positions.length >= 2 ||
         !isUsdtSymbol(signal.symbol) || state.positions.some(p => p.symbol === signal.symbol) ||
         state.seen[signal.symbol] >= signal.closedAt ||
         !Number.isFinite(signal.close) || signal.close <= 0 ||
         !Number.isFinite(signal.distance) || signal.distance <= 0 ||
         quote.ask / signal.close > 1.005 || (quote.ask - quote.bid) / quote.ask > .002) return false;
+    return signal.distance < quote.ask * (1 + slip);
+  }
+
+  function buy(state, signal, quote, now) {
+    if (!canBuy(state, signal, quote, now)) return false;
     const entry = quote.ask * (1 + slip);
-    if (signal.distance >= entry) return false;
     state.cash -= orderCash;
     state.positions.push({
       symbol: signal.symbol, entry, qty: orderCash / (entry * (1 + fee)), cost: orderCash,
@@ -137,16 +153,18 @@ const LivePaper = (() => {
   }
 
   function monitor({persist, state = initial(), onUpdate, automatic = () => false, get = fetch, now = Date.now}) {
-    let quotes = {}, signals = [], quoteDelay = 4000, busy = false, stopped = true;
+    let quotes = {}, signals = [], quoteDelay = pollInterval, busy = false, stopped = true;
     let marketDelayUntil = 0, timer, universe = [], universeAt = null, generation = 0;
     let scan = null;
     const histories = new Map();
+    const setups = new Map();
+    const firstAbove = new Map();
     const report = error => onUpdate({
       state, quotes, signals, error,
       market: {
         symbols: universe, total: universe.length, quoted: Object.keys(quotes).length, checked: scan?.checked ?? 0,
         shortHistory: scan?.shortHistory ?? 0, failed: scan?.failed ?? 0, scanHour: scan?.hour ?? null,
-        scanning: !!scan?.running
+        scanning: !!scan?.running, prepared: setups.size
       }
     });
     const change = mutation => {
@@ -156,9 +174,10 @@ const LivePaper = (() => {
       state = next;
       return true;
     };
-    async function query(path, params) {
+    async function query(path, params = {}) {
       if (now() < marketDelayUntil) throw Error('Binance istek sınırı. Yenileme bekliyor.');
-      const response = await get(endpoint + path + '?' + new URLSearchParams(params), {
+      const queryString = new URLSearchParams(params).toString();
+      const response = await get(endpoint + path + (queryString ? '?' + queryString : ''), {
         cache: 'no-store', signal: AbortSignal.timeout(7000)
       });
       if (response.status === 429 || response.status === 418) {
@@ -172,12 +191,19 @@ const LivePaper = (() => {
     async function refreshUniverse(token) {
       const updated = parseUniverse(await query('exchangeInfo', {permissions: 'SPOT', showPermissionSets: false}));
       if (stopped || token !== generation) return;
+      const changed = universe.length !== updated.length || universe.some((symbol, i) => symbol !== updated[i]);
       universe = updated;
       universeAt = now();
+      if (!changed) return;
+      scan = null;
       const active = new Set(universe);
       signals = signals.filter(signal => active.has(signal.symbol));
       for (const symbol of histories.keys()) {
-        if (!active.has(symbol)) histories.delete(symbol);
+        if (!active.has(symbol)) {
+          histories.delete(symbol);
+          setups.delete(symbol);
+          firstAbove.delete(symbol);
+        }
       }
     }
 
@@ -187,6 +213,7 @@ const LivePaper = (() => {
       }), now());
       const cached = histories.get(symbol);
       if (cached) {
+        if (contiguous(cached, end)) return cached;
         const joined = mergeBars(cached, await load(3), end);
         if (joined) return joined;
       }
@@ -199,8 +226,8 @@ const LivePaper = (() => {
       let cursor = 0;
       let nextRequestAt = 0;
       const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-      const valid = () => !stopped && token === generation && now() < run.hour + signalWindow &&
-        now() >= marketDelayUntil;
+      const valid = () => !stopped && token === generation && scan === run &&
+        clockHour(now()) === run.hour && now() >= marketDelayUntil;
       async function lane() {
         while (cursor < pool.length && valid()) {
           const symbol = pool[cursor++];
@@ -214,8 +241,9 @@ const LivePaper = (() => {
             if (bars.length < historySize) run.shortHistory++;
             else {
               histories.set(symbol, bars);
-              const signal = candidate(symbol, bars, now());
-              if (signal) signals.push(signal);
+              const setup = setupFor(symbol, bars, now());
+              if (setup) setups.set(symbol, setup);
+              else setups.delete(symbol);
             }
           } catch (_) {
             if (!stopped && token === generation) run.failed++;
@@ -226,25 +254,36 @@ const LivePaper = (() => {
       }
       await Promise.all(Array.from({length: 8}, lane));
       run.running = false;
+      run.interrupted = run.checked < pool.length;
     }
 
-    function fetchQuotes() {
+    async function fetchQuotes() {
+      const observedAt = now();
       const active = new Set(universe);
-      const wanted = [...new Set([
-        ...referenceSymbols, ...state.positions.map(position => position.symbol),
-        ...signals.map(signal => signal.symbol)
-      ].filter(symbol => active.has(symbol)))];
-      if (!wanted.length) wanted.push(universe[0]);
-      const batches = [];
-      for (let offset = 0; offset < wanted.length; offset += 40) {
-        batches.push(query('ticker/bookTicker', {symbols: JSON.stringify(wanted.slice(offset, offset + 40))})
-          .then(rows => parseQuotes(rows, now())));
+      const rows = await query('ticker/bookTicker');
+      const market = parseQuotes(rows, observedAt);
+      for (const symbol of Object.keys(market)) {
+        if (!active.has(symbol)) delete market[symbol];
       }
-      return Promise.all(batches).then(parts => {
-        const values = Object.assign({}, ...parts);
-        if (!Object.keys(values).length) throw Error('Binance fiyat verisi eksik.');
-        return values;
-      });
+      if (!Object.values(market).some(quote => usable(quote, now()))) {
+        throw Error('Binance fiyat verisi eksik veya gecikti.');
+      }
+      return market;
+    }
+
+    function refreshSignals(at) {
+      const next = [];
+      for (const [symbol, setup] of setups) {
+        const quote = quotes[symbol];
+        if (!usable(quote, at) || setup.closedAt !== clockHour(at) || quote.bid <= setup.level) {
+          firstAbove.delete(symbol);
+          continue;
+        }
+        if (!firstAbove.has(symbol)) firstAbove.set(symbol, at);
+        const signal = signalFor(setup, quote, at, firstAbove.get(symbol));
+        if (signal) next.push(signal);
+      }
+      signals = next;
     }
 
     async function tick() {
@@ -262,25 +301,30 @@ const LivePaper = (() => {
           }
         }
         if (stopped || token !== generation) return;
-        signals = signals.filter(signal => now() < signal.expires);
+        const currentHour = clockHour(now());
+        if (!listingError && now() - currentHour >= 3000 &&
+            (scan?.hour !== currentHour || (scan.interrupted && !scan.running))) {
+          setups.clear();
+          firstAbove.clear();
+          scan = {hour: currentHour, running: true, checked: 0, failed: 0, shortHistory: 0};
+          void scanMarket(scan, universe, token);
+        }
         const freshQuotes = await fetchQuotes();
         if (stopped || token !== generation) return;
         quotes = freshQuotes;
         change(next => mark(next, quotes, now()));
-        const currentHour = clockHour(now());
-        const age = now() - currentHour;
-        if (!listingError && scan?.hour !== currentHour && age >= 3000 && age < signalWindow) {
-          scan = {hour: currentHour, running: true, checked: 0, failed: 0, shortHistory: 0};
-          void scanMarket(scan, universe, token);
-        }
+        if (!listingError) refreshSignals(now());
+        else signals = [];
         if (!listingError && automatic() && value(state, quotes, now()) !== null) {
           for (const signal of signals) change(next => buy(next, signal, quotes[signal.symbol], now()));
         }
-        quoteDelay = 4000;
+        quoteDelay = pollInterval;
         report(listingError);
       } catch (error) {
         if (stopped || token !== generation) return;
         quotes = {};
+        signals = [];
+        firstAbove.clear();
         quoteDelay = Math.min(30000, quoteDelay * 2);
         report(error.message);
       } finally {
@@ -299,6 +343,8 @@ const LivePaper = (() => {
         quotes = {};
         signals = [];
         scan = null;
+        setups.clear();
+        firstAbove.clear();
         report('Tarama durdu.');
       },
       buy(symbol) {
@@ -316,6 +362,6 @@ const LivePaper = (() => {
     };
   }
 
-  return {isUsdtSymbol, hour, initial, restore, candidate, parseBars, parseUniverse, parseQuotes, mergeBars, buy, sell, mark, value, usable, monitor};
+  return {isUsdtSymbol, hour, initial, restore, setupFor, signalFor, parseBars, parseUniverse, parseQuotes, mergeBars, canBuy, buy, sell, mark, value, usable, monitor};
 })();
 if (typeof module !== 'undefined') module.exports = LivePaper;

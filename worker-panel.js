@@ -32,12 +32,15 @@
         ' · Son kontrol ' + time(report.updatedAt) + (report.error ? ' · ' + report.error : '');
       rows('wallet', [
         'Nakit ' + fmt(state.cash) + ' USDT' + (state.locked ? ' · Risk kilidi açık' : ''),
-        ...Object.entries(fresh ? report.quotes : {}).map(([symbol, quote]) =>
+        ...Object.entries(fresh ? report.quotes : {})
+          .filter(([symbol]) => symbol === 'BTCUSDT' || symbol === 'ETHUSDT' ||
+            state.positions.some(p => p.symbol === symbol) || report.signals.some(s => s.symbol === symbol))
+          .map(([symbol, quote]) =>
           symbol + ' · alış ' + fmt(quote.ask) + ' · satış ' + fmt(quote.bid))
       ], 'Veri bekleniyor.');
       rows('signals', (fresh && !state.locked ? report.signals : [])
         .filter(s => s.expires > Date.now() && !(state.seen[s.symbol] >= s.closedAt))
-        .map(s => s.symbol + ' · Saatlik kırılım adayı · son geçerlilik ' + time(s.expires)),
+        .map(s => s.symbol + ' · Canlı kırılım adayı · son geçerlilik ' + time(s.expires)),
         fresh ? 'Aktif aday yok.' : 'Güncel fiyat bekleniyor.');
       rows('positions', state.positions.map(p =>
         p.symbol + ' · Giriş ' + fmt(p.entry) + ' · Stop ' + fmt(p.stop) + ' · Hedef ' + fmt(p.target)),

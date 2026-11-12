@@ -61,9 +61,9 @@
       const checked = market.scanHour === Math.floor(now / LivePaper.hour) * LivePaper.hour;
       el('live-coverage').textContent = market.total + ' aktif parite · ' +
         (checked ? market.checked + '/' + market.total + ' kontrol edildi' +
-          (market.scanning ? ' · Tarama sürüyor' : '') +
+          (market.scanning ? ' · Geçmiş mumlar hazırlanıyor' : ' · Canlı fiyat takibi açık') +
           (market.shortHistory ? ' · Yetersiz geçmiş: ' + market.shortHistory : '') +
-          (market.failed ? ' · Veri hatası: ' + market.failed : '') : 'Saatlik kapanış taraması bekleniyor');
+          (market.failed ? ' · Veri hatası: ' + market.failed : '') : 'Canlı tarama için mumlar hazırlanıyor');
     }
     const equity = LivePaper.value(state, quotes, now);
     el('live-wallet').textContent = 'Nakit ' + format(state.cash) + ' USDT · Cüzdan değeri ' +
@@ -71,10 +71,10 @@
     const output = el('live-signals');
     output.replaceChildren();
     const actionable = fresh && equity !== null && !state.locked ? signals.filter(signal =>
-      LivePaper.buy(LivePaper.restore(JSON.stringify(state)), signal, quotes[signal.symbol], now)) : [];
+      LivePaper.canBuy(state, signal, quotes[signal.symbol], now)) : [];
     if (!actionable.length) item(output, fresh ? market?.scanning ? 'Pariteler kontrol ediliyor.' : 'Şu an işlem koşullarını karşılayan sinyal yok.' : 'Güncel fiyat bekleniyor.');
     for (const signal of actionable) {
-      item(output, signal.symbol + ' · Saatlik zirve kırılımı · alış ' + format(quotes[signal.symbol].ask),
+      item(output, signal.symbol + ' · Canlı zirve kırılımı · alış ' + format(quotes[signal.symbol].ask),
         {label: 'Sanal al', run: () => tryAction(() => monitor.buy(signal.symbol))}, signal.symbol);
     }
     const positions = el('live-positions');
