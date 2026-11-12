@@ -12,3 +12,7 @@ Binance Spot, BTCUSDT ve ETHUSDT'nin 1 saatlik mumlarını sağlar. GitHub Actio
 Panel sanal portföy backtesti, al-tut kıyası ve ileri dönem deneyi içerir. V7'nin çalışan Python sunucusuna bağlı haber arşivi ve canlı sanal cüzdanı bu mobil paketin kapsamı dışındadır. Hazır veri paketi oluşturulmadıysa panel yerel JSON yüklemeyi de destekler.
 
 Doğrulama: Test verisiyle 3.000+3.000 mum, kapanış eşleştirme, statik dosya üretimi ve bir kaynak hatasında önceki paketin korunması geçti. Canlı Binance denemesinde bağlantı zaman aşımına uğradı. GitHub Actions, Pages yayını ve iPhone Safari üzerinde uçtan uca çalışma doğrulanmadı.
+
+## Mobil haber bölümü
+
+Yayınla birlikte Fed, ECB, BLS ve SEC'in en yeni başlıkları kontrol edilir. Panel son kontrol saatini, erişilemeyen kaynakları ve yayın tarihlerini gösterir. Haber başlıkları ve bağlantıları yayımlanır. RSS akışı erişilemezse o kaynak boş olarak işaretlenir ve piyasa verisi yayımlanmaya devam eder. Bu bölüm geçmiş haber arşivi ve backtest için ilk görülme kaydı sağlamaz.
