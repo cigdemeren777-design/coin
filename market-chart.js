@@ -40,7 +40,36 @@ const MarketChartData = (() => {
     return points;
   }
 
-  return {intervals, symbol, parse, merge, ema};
+  function indicators(bars, now = Date.now()) {
+    const closed = bars.filter(bar => bar.ends < now);
+    if (closed.length < 30) return null;
+    const core = typeof Core === 'undefined' ? require('./core') : Core;
+    const data = core.prepare(closed.map(bar => ({
+      t:bar.time, o:bar.open, h:bar.high, l:bar.low, c:bar.close, v:bar.volume
+    })));
+    const last = closed.at(-1);
+    const e20 = data.ema20.at(-1), e50 = data.ema50.at(-1), e200 = data.ema200.at(-1);
+    const trend = e50 === null ? 'Yetersiz geçmiş' :
+      last.close > e20 && e20 > e50 ? 'Yükseliş eğilimi' :
+      last.close < e20 && e20 < e50 ? 'Düşüş eğilimi' : 'Kararsız';
+    const pivots = {support:[], resistance:[]};
+    for (let i = Math.max(3, closed.length - 150); i < closed.length - 3; i++) {
+      const pivot = closed[i];
+      const neighbours = closed.slice(i-3, i+4).filter(bar => bar !== pivot);
+      if (pivot.low < last.close && neighbours.every(bar => pivot.low < bar.low)) pivots.support.push(pivot.low);
+      if (pivot.high > last.close && neighbours.every(bar => pivot.high > bar.high)) pivots.resistance.push(pivot.high);
+    }
+    const average = data.vavg.at(-2);
+    return {
+      ends:last.ends, trend, rsi:data.rsi.at(-1), macd:data.hist.at(-1),
+      support:pivots.support.length ? Math.max(...pivots.support) : null,
+      resistance:pivots.resistance.length ? Math.min(...pivots.resistance) : null,
+      volume:average > 0 ? last.volume / average : null, atr:data.atr.at(-1) / last.close * 100,
+      e200:e200 === null ? null : last.close >= e200
+    };
+  }
+
+  return {intervals, symbol, parse, merge, ema, indicators};
 })();
 if (typeof module !== 'undefined') module.exports = MarketChartData;
 
@@ -103,6 +132,38 @@ if (typeof document !== 'undefined') (() => {
     }
   }
 
+  function showAnalysis(source) {
+    const results = el('chart-analysis-values');
+    const info = MarketChartData.indicators(bars);
+    results.replaceChildren();
+    const state = el('chart-analysis-status');
+    if (!info) {
+      state.textContent = 'Analiz için en az 30 kapanmış mum gerekiyor.';
+      return;
+    }
+    state.textContent = source + ' · ' + interval + ' · son kapanış ' + date.format(info.ends + 1) + ' (TSİ)';
+    const decimal = n => n.toLocaleString('tr-TR', {maximumFractionDigits:2});
+    const rows = [
+      ['Trend', info.trend],
+      ['EMA200', info.e200 === null ? 'Yetersiz geçmiş' : info.e200 ? 'Fiyat EMA200 üzerinde' : 'Fiyat EMA200 altında'],
+      ['RSI (14)', decimal(info.rsi) + (info.rsi >= 70 ? ' · yüksek' : info.rsi <= 30 ? ' · düşük' : ' · orta bölge')],
+      ['MACD', info.macd === null ? 'Yetersiz geçmiş' : info.macd > 0 ? 'Pozitif' : info.macd < 0 ? 'Negatif' : 'Nötr'],
+      ['Destek', info.support === null ? 'Belirgin seviye yok' : format(info.support) + ' USDT'],
+      ['Direnç', info.resistance === null ? 'Belirgin seviye yok' : format(info.resistance) + ' USDT'],
+      ['Hacim', info.volume === null ? 'Ortalama yok' : decimal(info.volume) + '× önceki 20 mum'],
+      ['Oynaklık (ATR)', '%' + decimal(info.atr)]
+    ];
+    for (const [title, value] of rows) {
+      const tile = document.createElement('div');
+      const term = document.createElement('dt');
+      const detail = document.createElement('dd');
+      term.textContent = title;
+      detail.textContent = value;
+      tile.append(term, detail);
+      results.append(tile);
+    }
+  }
+
   function draw(reset) {
     const last = bars.at(-1);
     const digits = precision(last.close);
@@ -147,8 +208,9 @@ if (typeof document !== 'undefined') (() => {
         delay = 100;
         return;
       }
-      ensureChart();
       bars = incremental ? MarketChartData.merge(bars, updates) : updates;
+      showAnalysis('Binance Spot · Kapanmış mumlar');
+      ensureChart();
       draw(!incremental);
       const last = bars.at(-1);
       status.textContent = 'Binance Spot · ' + (last.ends >= Date.now() ? 'Son mum açık' : 'Son mum kapanmış') +
@@ -185,6 +247,8 @@ if (typeof document !== 'undefined') (() => {
     }
     el('chart-price').textContent = symbol.slice(0, -4) + '/USDT · —';
     el('chart-ohlc').textContent = 'Açılış — · Yüksek — · Düşük — · Kapanış —';
+    el('chart-analysis-values').replaceChildren();
+    el('chart-analysis-status').textContent = 'Kapanmış mumlar bekleniyor…';
     for (const button of frames) button.setAttribute('aria-pressed', String(button.dataset.timeframe === interval));
     status.textContent = 'Binance mumları yükleniyor…';
     load(true);

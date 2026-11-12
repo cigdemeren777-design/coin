@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Coin Tarayıcı · Araştırma</title>
-  <link rel="stylesheet" href="panel.css">
+  <link rel="stylesheet" href="panel.css?v=2">
 </head>
 <body>
 <main class="wrap">
@@ -41,6 +41,11 @@
       <p id="chart-status" role="status">Binance mumları yükleniyor…</p>
       <a class="chart-credit" href="https://www.tradingview.com/" target="_blank" rel="noopener noreferrer">TradingView Lightweight Charts™</a>
     </div>
+    <section class="chart-analysis" aria-labelledby="chart-analysis-heading">
+      <h3 id="chart-analysis-heading">Grafik Bilgisi</h3>
+      <p id="chart-analysis-status">Kapanmış mumlar bekleniyor…</p>
+      <dl id="chart-analysis-values"></dl>
+    </section>
   </article>
   <article>
     <h2>Canlı Spot Tarama</h2>
@@ -94,7 +99,7 @@
   <script src="core.js"></script>
   <script src="live-paper.js"></script>
   <script src="lwc.js"></script>
-  <script src="market-chart.js"></script>
+  <script src="market-chart.js?v=2"></script>
   <script src="live-paper-ui.js"></script>
   <script src="research.js"></script>
   <script src="experiments.js"></script>
