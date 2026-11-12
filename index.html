@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Coin Tarayıcı · Araştırma</title>
-  <link rel="stylesheet" href="panel.css?v=2">
+  <link rel="stylesheet" href="panel.css?v=3">
 </head>
 <body>
 <main class="wrap">
@@ -17,9 +17,21 @@
     <div class="stat"><span>Sanal cüzdan</span><strong id="live-wallet">—</strong></div>
     <div class="stat"><span>Canlı tarama</span><strong id="live-coverage">Taramayı başlat.</strong></div>
   </section>
-  <article id="market-chart" class="chart-card">
+  <article>
+    <h2>Canlı Spot Tarama</h2>
+    <p>Binance Spot USDT pariteleri saatlik mum kapanışından sonra taranır. Adayların ve açık işlemlerin fiyatı yaklaşık dört saniyede bir yenilenir.</p>
+    <div class="controls">
+      <button id="live-start" type="button">Taramayı başlat</button>
+      <label><input id="live-auto" type="checkbox"> Sinyalde otomatik sanal alım</label>
+    </div>
+    <details><summary>Taranan coinler</summary>
+      <label>Coin ara <input id="live-search" type="search" placeholder="Örn. SOL"></label>
+      <p id="live-universe-count">Taramayı başlatınca liste gelir.</p>
+      <ul id="live-universe-list" style="max-height:15rem;overflow:auto"></ul>
+    </details>
+  <section id="market-chart" class="chart-card">
     <div class="chart-head">
-      <div><h2>Fiyat grafiği</h2><p id="chart-price" class="chart-price">—</p></div>
+      <div><h2>Grafik</h2><p id="chart-price" class="chart-price">—</p></div>
       <div class="controls"><label>Parite
         <input id="chart-symbol" list="chart-pairs" value="BTCUSDT" autocomplete="off" spellcheck="false">
         <datalist id="chart-pairs"><option value="BTCUSDT"><option value="ETHUSDT"></datalist>
@@ -46,19 +58,7 @@
       <p id="chart-analysis-status">Kapanmış mumlar bekleniyor…</p>
       <dl id="chart-analysis-values"></dl>
     </section>
-  </article>
-  <article>
-    <h2>Canlı Spot Tarama</h2>
-    <p>Binance Spot USDT pariteleri saatlik mum kapanışından sonra taranır. Adayların ve açık işlemlerin fiyatı yaklaşık dört saniyede bir yenilenir.</p>
-    <div class="controls">
-      <button id="live-start" type="button">Taramayı başlat</button>
-      <label><input id="live-auto" type="checkbox"> Sinyalde otomatik sanal alım</label>
-    </div>
-    <details><summary>Taranan coinler</summary>
-      <label>Coin ara <input id="live-search" type="search" placeholder="Örn. SOL"></label>
-      <p id="live-universe-count">Taramayı başlatınca liste gelir.</p>
-      <ul id="live-universe-list" style="max-height:15rem;overflow:auto"></ul>
-    </details>
+  </section>
     <p>Bu cihazdaki sanal cüzdan 1.000 USDT ile başlar. Tarama açık ve sayfa görünürken stop ve hedefler izlenir.</p>
     <h3>Şimdi Al</h3>
     <div id="live-signals" class="trade-grid"></div>

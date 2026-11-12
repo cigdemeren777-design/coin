@@ -57,3 +57,5 @@ small{color:var(--muted)}
 #chart-analysis-values div{padding:7px 9px;border:1px solid var(--line);border-radius:7px;background:var(--card)}
 #chart-analysis-values dt{color:var(--muted);font-size:12px}
 #chart-analysis-values dd{margin:2px 0 0;font-size:13px;font-weight:600}
+
+#market-chart{margin:14px 0 0;border:1px solid var(--line);border-radius:10px;padding:12px;scroll-margin-top:10px}
