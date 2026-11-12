@@ -82,7 +82,7 @@ if (typeof document !== 'undefined') (() => {
   const endpoint = 'https://data-api.binance.vision/api/v3/klines';
   const up = '#1fc77e', down = '#f0506e';
   let current = 'BTCUSDT', interval = '1h', bars = [], timer, request, sequence = 0;
-  let rateLimitUntil = 0;
+  let rateLimitUntil = 0, opened = false;
   let chart, candles, volume, ema20, ema50, lines = [], paperPositions = [], positionSignature = '';
   const date = new Intl.DateTimeFormat('tr-TR', {day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit', timeZone:'Europe/Istanbul'});
   const precision = price => price >= 100 ? 2 : price >= 1 ? 4 : price >= .01 ? 6 : price >= .0001 ? 8 : 10;
@@ -182,7 +182,7 @@ if (typeof document !== 'undefined') (() => {
   }
 
   async function load(reset = false) {
-    if (document.hidden) return;
+    if (!opened || document.hidden) return;
     const token = sequence;
     const previous = request;
     if (previous) previous.abort();
@@ -228,12 +228,13 @@ if (typeof document !== 'undefined') (() => {
     }
   }
 
-  function open(value, frame = interval, focus = false) {
+  function open(value, frame = interval) {
     const symbol = MarketChartData.symbol(value);
     if (!symbol || !MarketChartData.intervals.has(frame)) {
       status.textContent = 'Geçerli bir USDT paritesi gir. Örnek: SOL veya SOLUSDT.';
       return;
     }
+    opened = true;
     current = symbol;
     interval = frame;
     input.value = symbol;
@@ -252,13 +253,18 @@ if (typeof document !== 'undefined') (() => {
     for (const button of frames) button.setAttribute('aria-pressed', String(button.dataset.timeframe === interval));
     status.textContent = 'Binance mumları yükleniyor…';
     load(true);
-    if (focus) el('market-chart').scrollIntoView({block:'start', behavior:'smooth'});
   }
 
   el('chart-load').addEventListener('click', () => open(input.value));
   input.addEventListener('keydown', event => { if (event.key === 'Enter') open(input.value); });
   for (const button of frames) button.addEventListener('click', () => open(input.value, button.dataset.timeframe));
-  document.addEventListener('coin-chart-open', event => open(event.detail, interval, true));
+  document.addEventListener('coin-chart-open', event => open(event.detail));
+  document.addEventListener('coin-chart-close', () => {
+    opened = false;
+    sequence++;
+    clearTimeout(timer);
+    if (request) request.abort();
+  });
   document.addEventListener('coin-chart-state', event => {
     paperPositions = event.detail.positions;
     drawPositions();
@@ -277,5 +283,4 @@ if (typeof document !== 'undefined') (() => {
       if (request) request.abort();
     } else load();
   });
-  open(current);
 })();

@@ -38,10 +38,14 @@ button{cursor:pointer;font-weight:650}button:disabled{opacity:.55;cursor:default
 button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
 summary{cursor:pointer;color:var(--blue)}
 .trade-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:8px}
-.trade-grid p{margin:0;padding:10px;border:1px solid var(--line);border-radius:8px;background:#101820}
+.trade-grid>p,.trade-grid>[data-chart-symbol]>p{margin:0;padding:10px;border:1px solid var(--line);border-radius:8px;background:#101820}
 #live-signals p:has(button){border-color:#246247;background:#10241c}
-#live-universe-list{padding-left:0;list-style:none}
-#live-universe-list li{display:flex;align-items:center;justify-content:space-between;padding:4px 6px;border-bottom:1px solid var(--line)}
+#live-universe-list{padding-left:0;list-style:none;max-height:15rem;overflow:auto}
+#live-universe-list:has(.chart-open){max-height:none;overflow:visible}
+#live-universe-list li{padding:4px 6px;border-bottom:1px solid var(--line)}
+.coin-line{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.trade-grid>.chart-open{grid-column:1/-1}
+.chart-toggle[aria-expanded=true]{border-color:var(--blue)}
 #live-universe-list button{font-size:12px}
 .scroll{overflow:auto}table{width:100%;border-collapse:collapse}
 td,th{text-align:left;padding:8px;border-bottom:1px solid var(--line);white-space:nowrap;font-size:13px}

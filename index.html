@@ -4,13 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Coin Tarayıcı · Araştırma</title>
-  <link rel="stylesheet" href="panel.css?v=3">
+  <link rel="stylesheet" href="panel.css?v=inline1">
 </head>
 <body>
 <main class="wrap">
   <header class="masthead">
     <div><h1>Coin Tarayıcı</h1><span class="mode">Sanal Spot</span></div>
-    <nav aria-label="Panel bölümleri"><a href="#market-chart">Grafik</a><a href="#live-signals">Şimdi Al</a><a href="#portfolio-test">Testler</a></nav>
+    <nav aria-label="Panel bölümleri"><a id="coin-search-link" href="#coin-search">Coinler</a><a href="#live-signals">Şimdi Al</a><a href="#portfolio-test">Testler</a></nav>
   </header>
   <section class="summary" aria-label="Piyasa ve cüzdan özeti">
     <div class="stat"><span>Bağlantı</span><strong id="live-status" role="status">Tarama kapalı.</strong></div>
@@ -24,11 +24,12 @@
       <button id="live-start" type="button">Taramayı başlat</button>
       <label><input id="live-auto" type="checkbox"> Sinyalde otomatik sanal alım</label>
     </div>
-    <details><summary>Taranan coinler</summary>
+    <details id="coin-search"><summary>Taranan coinler</summary>
       <label>Coin ara <input id="live-search" type="search" placeholder="Örn. SOL"></label>
       <p id="live-universe-count">Parite listesi otomatik yüklenir.</p>
-      <ul id="live-universe-list" style="max-height:15rem;overflow:auto"></ul>
+      <ul id="live-universe-list"></ul>
     </details>
+  <div id="chart-home" hidden>
   <section id="market-chart" class="chart-card">
     <div class="chart-head">
       <div><h2>Grafik</h2><p id="chart-price" class="chart-price">—</p></div>
@@ -59,6 +60,7 @@
       <dl id="chart-analysis-values"></dl>
     </section>
   </section>
+  </div>
     <p>Bu cihazdaki sanal cüzdan 1.000 USDT ile başlar. Tarama açık ve sayfa görünürken stop ve hedefler izlenir.</p>
     <h3>Şimdi Al</h3>
     <div id="live-signals" class="trade-grid"></div>
@@ -101,8 +103,8 @@
   <script src="core.js"></script>
   <script src="live-paper.js?v=intrahour2"></script>
   <script src="lwc.js"></script>
-  <script src="market-chart.js?v=2"></script>
-  <script src="live-paper-ui.js?v=intrahour2"></script>
+  <script src="market-chart.js?v=inline1"></script>
+  <script src="live-paper-ui.js?v=inline1"></script>
   <script src="research.js"></script>
   <script src="experiments.js"></script>
   <script src="research-ui.js?v=auto1"></script>
