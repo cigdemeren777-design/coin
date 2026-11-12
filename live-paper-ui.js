@@ -72,7 +72,36 @@
     output.replaceChildren();
     const actionable = fresh && equity !== null && !state.locked ? signals.filter(signal =>
       LivePaper.canBuy(state, signal, quotes[signal.symbol], now)) : [];
-    if (!actionable.length) item(output, fresh ? market?.scanning ? 'Pariteler kontrol ediliyor.' : 'Şu an işlem koşullarını karşılayan sinyal yok.' : 'Güncel fiyat bekleniyor.');
+    const stats = market?.signalStats;
+    if (!actionable.length) {
+      let explanation = 'Şu an işlem koşullarını karşılayan sinyal yok.';
+      if (!fresh) explanation = 'Güncel fiyat bekleniyor.';
+      else if (market?.scanning) explanation = 'Paritelerin mum geçmişi kontrol ediliyor.';
+      else if (stats && !stats.trend) explanation = 'Trend ve mum geçmişi koşullarını karşılayan parite yok.';
+      else if (stats && !stats.quoted) explanation = 'Trendi uygun pariteler için güncel fiyat bekleniyor.';
+      else if (stats && !stats.above) explanation = 'Trendi uygun coinlerden hiçbiri son 20 mumun zirvesini aşmadı.';
+      else if (stats?.walletBlocked) explanation = state.locked ? 'Risk kilidi yeni sanal alımları durdurdu.' :
+        equity === null ? 'Açık pozisyonun güncel fiyatı bekleniyor.' :
+        'Kırılım var. Bakiye, açık işlem sınırı veya aynı saatte tekrar alım kuralı nedeniyle bekleniyor.';
+      else if (stats && stats.above) explanation = 'Zirve aşıldı. Fiyat farkı, zirveden uzaklık veya sinyal süresi uygun değil.';
+      item(output, explanation);
+    }
+    const detail = el('live-signal-detail');
+    const near = el('live-near-breakouts');
+    near.replaceChildren();
+    detail.textContent = fresh && stats ? stats.trend + ' trendi uygun · ' + stats.above + ' zirve üstünde' +
+      (stats.spread ? ' · Alış-satış farkı yüksek: ' + stats.spread : '') +
+      (stats.distance ? ' · Zirveden %0,5’ten fazla uzakta: ' + stats.distance : '') +
+      (stats.expired ? ' · Süresi dolan: ' + stats.expired : '') +
+      (stats.walletBlocked ? ' · Cüzdan kuralları: ' + stats.walletBlocked : '') : '';
+    if (fresh && stats?.near.length) {
+      const heading = document.createElement('small');
+      heading.textContent = 'Zirveye en yakın coinler · İzleme';
+      near.append(heading);
+      for (const candidate of stats.near) {
+        item(near, candidate.symbol.slice(0, -4) + '/USDT · zirveye %' + format(candidate.remainingPct), null, candidate.symbol);
+      }
+    }
     for (const signal of actionable) {
       item(output, signal.symbol + ' · Canlı zirve kırılımı · alış ' + format(quotes[signal.symbol].ask),
         {label: 'Sanal al', run: () => tryAction(() => monitor.buy(signal.symbol))}, signal.symbol);

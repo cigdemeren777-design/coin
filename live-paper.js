@@ -89,6 +89,41 @@ const LivePaper = (() => {
       Number.isFinite(quote.bid) && Number.isFinite(quote.ask) && quote.bid > 0 && quote.ask >= quote.bid;
   }
 
+  function priceBlock(level, quote) {
+    if ((quote.ask - quote.bid) / quote.ask > .002) return 'spread';
+    if (quote.ask / level > 1.005) return 'distance';
+    return null;
+  }
+
+  function evaluateMarket(setups, quotes, firstEligible, at) {
+    const signals = [], near = [];
+    const stats = {trend:0, quoted:0, above:0, spread:0, distance:0, expired:0};
+    for (const [symbol, setup] of setups) {
+      if (setup.closedAt !== clockHour(at)) continue;
+      stats.trend++;
+      const quote = quotes[symbol];
+      if (!usable(quote, at)) continue;
+      stats.quoted++;
+      if (quote.bid <= setup.level) {
+        firstEligible.delete(symbol);
+        near.push({symbol, remainingPct:100 * (1 - quote.bid / setup.level)});
+        continue;
+      }
+      stats.above++;
+      const blocked = priceBlock(setup.level, quote);
+      if (blocked) {
+        stats[blocked]++;
+        continue;
+      }
+      if (!firstEligible.has(symbol)) firstEligible.set(symbol, at);
+      const signal = signalFor(setup, quote, at, firstEligible.get(symbol));
+      if (signal) signals.push(signal);
+      else stats.expired++;
+    }
+    near.sort((a, b) => a.remainingPct - b.remainingPct);
+    return {signals, stats:{...stats, near:near.slice(0, 3)}};
+  }
+
   function canBuy(state, signal, quote, now) {
     if (!signal || signal.closedAt !== clockHour(now) || now >= signal.expires ||
         !usable(quote, now) || !Number.isFinite(signal.level) || quote.bid <= signal.level ||
@@ -97,7 +132,7 @@ const LivePaper = (() => {
         state.seen[signal.symbol] >= signal.closedAt ||
         !Number.isFinite(signal.close) || signal.close <= 0 ||
         !Number.isFinite(signal.distance) || signal.distance <= 0 ||
-        quote.ask / signal.close > 1.005 || (quote.ask - quote.bid) / quote.ask > .002) return false;
+        priceBlock(signal.level, quote)) return false;
     return signal.distance < quote.ask * (1 + slip);
   }
 
@@ -155,16 +190,20 @@ const LivePaper = (() => {
   function monitor({persist, state = initial(), onUpdate, automatic = () => false, get = fetch, now = Date.now}) {
     let quotes = {}, signals = [], quoteDelay = pollInterval, busy = false, stopped = true;
     let marketDelayUntil = 0, timer, universe = [], universeAt = null, generation = 0;
-    let scan = null;
+    let scan = null, signalStats = null;
     const histories = new Map();
     const setups = new Map();
-    const firstAbove = new Map();
+    const firstEligible = new Map();
     const report = error => onUpdate({
       state, quotes, signals, error,
       market: {
         symbols: universe, total: universe.length, quoted: Object.keys(quotes).length, checked: scan?.checked ?? 0,
         shortHistory: scan?.shortHistory ?? 0, failed: scan?.failed ?? 0, scanHour: scan?.hour ?? null,
-        scanning: !!scan?.running, prepared: setups.size
+        scanning: !!scan?.running,
+        signalStats: signalStats && !error ? {
+          ...signalStats, walletBlocked: signals.filter(signal =>
+            value(state, quotes, now()) === null || !canBuy(state, signal, quotes[signal.symbol], now())).length
+        } : null
       }
     });
     const change = mutation => {
@@ -202,7 +241,7 @@ const LivePaper = (() => {
         if (!active.has(symbol)) {
           histories.delete(symbol);
           setups.delete(symbol);
-          firstAbove.delete(symbol);
+          firstEligible.delete(symbol);
         }
       }
     }
@@ -223,6 +262,7 @@ const LivePaper = (() => {
     }
 
     async function scanMarket(run, pool, token) {
+      const checkedAtStart = run.checked;
       let cursor = 0;
       let nextRequestAt = 0;
       const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -246,15 +286,17 @@ const LivePaper = (() => {
               else setups.delete(symbol);
             }
           } catch (_) {
-            if (!stopped && token === generation) run.failed++;
+            if (valid()) run.failedSymbols.push(symbol);
           } finally {
-            if (!stopped && token === generation) run.checked++;
+            if (valid()) run.checked++;
           }
         }
       }
       await Promise.all(Array.from({length: 8}, lane));
       run.running = false;
-      run.interrupted = run.checked < pool.length;
+      run.interrupted = run.checked - checkedAtStart < pool.length;
+      run.failed = run.failedSymbols.length;
+      run.retryAt = now() + 15000;
     }
 
     async function fetchQuotes() {
@@ -269,21 +311,6 @@ const LivePaper = (() => {
         throw Error('Binance fiyat verisi eksik veya gecikti.');
       }
       return market;
-    }
-
-    function refreshSignals(at) {
-      const next = [];
-      for (const [symbol, setup] of setups) {
-        const quote = quotes[symbol];
-        if (!usable(quote, at) || setup.closedAt !== clockHour(at) || quote.bid <= setup.level) {
-          firstAbove.delete(symbol);
-          continue;
-        }
-        if (!firstAbove.has(symbol)) firstAbove.set(symbol, at);
-        const signal = signalFor(setup, quote, at, firstAbove.get(symbol));
-        if (signal) next.push(signal);
-      }
-      signals = next;
     }
 
     async function tick() {
@@ -305,16 +332,31 @@ const LivePaper = (() => {
         if (!listingError && now() - currentHour >= 3000 &&
             (scan?.hour !== currentHour || (scan.interrupted && !scan.running))) {
           setups.clear();
-          firstAbove.clear();
-          scan = {hour: currentHour, running: true, checked: 0, failed: 0, shortHistory: 0};
+          firstEligible.clear();
+          scan = {hour: currentHour, running: true, checked: 0, failed: 0, shortHistory: 0,
+            failedSymbols: [], retried: false};
           void scanMarket(scan, universe, token);
+        } else if (!listingError && scan?.hour === currentHour && !scan.running &&
+                   !scan.retried && scan.failed && now() >= scan.retryAt) {
+          const retry = scan.failedSymbols;
+          scan.failedSymbols = [];
+          scan.checked -= retry.length;
+          scan.retried = true;
+          scan.running = true;
+          void scanMarket(scan, retry, token);
         }
         const freshQuotes = await fetchQuotes();
         if (stopped || token !== generation) return;
         quotes = freshQuotes;
         change(next => mark(next, quotes, now()));
-        if (!listingError) refreshSignals(now());
-        else signals = [];
+        if (!listingError) {
+          const evaluated = evaluateMarket(setups, quotes, firstEligible, now());
+          signals = evaluated.signals;
+          signalStats = evaluated.stats;
+        } else {
+          signals = [];
+          signalStats = null;
+        }
         if (!listingError && automatic() && value(state, quotes, now()) !== null) {
           for (const signal of signals) change(next => buy(next, signal, quotes[signal.symbol], now()));
         }
@@ -324,7 +366,8 @@ const LivePaper = (() => {
         if (stopped || token !== generation) return;
         quotes = {};
         signals = [];
-        firstAbove.clear();
+        firstEligible.clear();
+        signalStats = null;
         quoteDelay = Math.min(30000, quoteDelay * 2);
         report(error.message);
       } finally {
@@ -344,7 +387,8 @@ const LivePaper = (() => {
         signals = [];
         scan = null;
         setups.clear();
-        firstAbove.clear();
+        firstEligible.clear();
+        signalStats = null;
         report('Tarama durdu.');
       },
       buy(symbol) {
@@ -362,6 +406,6 @@ const LivePaper = (() => {
     };
   }
 
-  return {isUsdtSymbol, hour, initial, restore, setupFor, signalFor, parseBars, parseUniverse, parseQuotes, mergeBars, canBuy, buy, sell, mark, value, usable, monitor};
+  return {isUsdtSymbol, hour, initial, restore, setupFor, signalFor, evaluateMarket, parseBars, parseUniverse, parseQuotes, mergeBars, canBuy, buy, sell, mark, value, usable, monitor};
 })();
 if (typeof module !== 'undefined') module.exports = LivePaper;
