@@ -9,10 +9,12 @@
     ? new Date(value).toLocaleString('tr-TR', {timeZone: 'Europe/Istanbul'})
     : 'Tarih belirtilmemiş';
 
-  button.addEventListener('click', async () => {
+  let timer;
+  async function refresh() {
+    if (document.hidden || button.disabled) return;
+    clearTimeout(timer);
     button.disabled = true;
     status.textContent = 'Haber paketi alınıyor…';
-    list.replaceChildren();
     try {
       const response = await fetch('./news.json', {cache: 'no-store', signal: AbortSignal.timeout(10000)});
       if (!response.ok) throw Error('Haber paketi yayımlanmamış veya erişilemiyor.');
@@ -21,10 +23,14 @@
           data.checkedAt > Date.now() + 60000 || !Array.isArray(data.sources)) {
         throw Error('Haber paketinin biçimi veya zamanı geçersiz.');
       }
+      const open = new Set([...list.querySelectorAll('details[open]')].map(group => group.dataset.source));
+      list.replaceChildren();
       let available = 0;
       for (const source of data.sources) {
         if (!Object.hasOwn(hosts, source.source)) continue;
         const group = document.createElement('details');
+        group.dataset.source = source.source;
+        group.open = open.has(source.source);
         const title = document.createElement('summary');
         group.append(title);
         let count = 0;
@@ -57,9 +63,16 @@
       status.textContent = 'Son kontrol ' + formatDate(data.checkedAt) + ' (TSİ) · ' +
         available + '/4 kaynak' + (stale ? ' · ESKİ VERİ' : '');
     } catch (error) {
-      status.textContent = error.message;
+      status.textContent = error.message + (list.children.length ? ' Önceki paket ekranda.' : '');
     } finally {
       button.disabled = false;
+      if (!document.hidden) timer = setTimeout(refresh, 5 * 60000);
     }
+  }
+  button.addEventListener('click', refresh);
+  document.addEventListener('visibilitychange', () => {
+    clearTimeout(timer);
+    if (!document.hidden) refresh();
   });
+  refresh();
 })();

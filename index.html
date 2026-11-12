@@ -26,7 +26,7 @@
     </div>
     <details><summary>Taranan coinler</summary>
       <label>Coin ara <input id="live-search" type="search" placeholder="Örn. SOL"></label>
-      <p id="live-universe-count">Taramayı başlatınca liste gelir.</p>
+      <p id="live-universe-count">Parite listesi otomatik yüklenir.</p>
       <ul id="live-universe-list" style="max-height:15rem;overflow:auto"></ul>
     </details>
   <section id="market-chart" class="chart-card">
@@ -70,7 +70,7 @@
     <h2>Portföy testi · BTC/ETH</h2>
     <p>1.000 USDT başlangıç nakdi, en fazla iki pozisyon. Varsayılan alış ve satış ücreti %0,10, kayma %0,05. Aynı mumda stop ve hedef görülürse stop önceliklidir.</p>
     <div class="controls">
-      <button id="load">GitHub verisini al</button>
+      <button id="load">Veriyi şimdi yenile</button>
       <label>JSON veri seti <input id="file" type="file" accept=".json"></label>
       <button id="export" disabled>Sonucu indir</button>
     </div>
@@ -89,20 +89,20 @@
   </article>
   <article>
     <h2>Resmî haberler ve ekonomi</h2>
-    <p>Fed, ECB, BLS ve SEC başlıkları. Başlıkları ve yayın tarihlerini kaynağında inceleyebilirsin.</p>
-    <button id="load-news">Haberleri göster</button>
+    <p>Fed, ECB, BLS ve SEC başlıkları. GitHub’da yayımlanan son haber paketi otomatik kontrol edilir.</p>
+    <button id="load-news">Haberleri yenile</button>
     <p id="news-status" role="status"></p>
     <div id="news-list"></div>
   </article>
 </main>
-  <script src="mobile-news.js"></script>
+  <script src="mobile-news.js?v=auto1"></script>
   <script src="core.js"></script>
   <script src="live-paper.js"></script>
   <script src="lwc.js"></script>
   <script src="market-chart.js?v=2"></script>
-  <script src="live-paper-ui.js"></script>
+  <script src="live-paper-ui.js?v=auto1"></script>
   <script src="research.js"></script>
   <script src="experiments.js"></script>
-  <script src="research-ui.js"></script>
+  <script src="research-ui.js?v=auto1"></script>
 </body>
 </html>

@@ -2,7 +2,7 @@
   const key = 'coin-paper-wallet-v1';
   const el = id => document.getElementById(id);
   const format = number => number == null ? '—' : number.toLocaleString('tr-TR', {maximumFractionDigits: 4});
-  let active = false;
+  let active = true;
   let wallet, monitor;
   let listed = [];
 
@@ -117,11 +117,14 @@
     onUpdate: render,
     automatic: () => active && !document.hidden && el('live-auto').checked
   });
-  render({state: wallet, quotes: {}, signals: [], error: 'Tarama kapalı.'});
+  el('live-auto').checked = false;
+  el('live-start').textContent = 'Taramayı durdur';
+  render({state: wallet, quotes: {}, signals: [], error: null});
+  if (!document.hidden) monitor.start();
   el('live-start').addEventListener('click', () => {
     active = !active;
     el('live-start').textContent = active ? 'Taramayı durdur' : 'Taramayı başlat';
-    if (active) monitor.start();
+    if (active && !document.hidden) monitor.start();
     else {
       el('live-auto').checked = false;
       monitor.stop();

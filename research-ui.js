@@ -151,36 +151,109 @@ async function runExperiment() {
   }
 }
 
-el('load').onclick = async () => {
-  el('load').disabled = true;
-  el('file').disabled = true;
-  el('status').textContent = 'GitHub veri paketi alınıyor…';
-  try {
-    const snapshot = await request('./snapshot.json');
-    if (snapshot.schema !== 1 || snapshot.source !== 'Binance Spot' ||
-        !Number.isFinite(snapshot.until) || !Number.isFinite(snapshot.fetchedAt) ||
-        snapshot.fetchedAt < snapshot.until || snapshot.fetchedAt > Date.now() + 60000) {
-      throw Error('Paket biçimi veya zamanı geçersiz.');
+const researchHour = 3600000;
+const researchPairs = ['BTCUSDT', 'ETHUSDT'];
+let baseSnapshot, refreshedHour, autoResearch = true, researchTimer;
+
+function snapshotFrom(source) {
+  if (source.schema !== 1 || source.source !== 'Binance Spot' ||
+      !Number.isSafeInteger(source.until) || source.until > Date.now() ||
+      source.until % researchHour || !Number.isFinite(source.fetchedAt) ||
+      source.fetchedAt < source.until || source.fetchedAt > Date.now() + 60000) {
+    throw Error('Paket biçimi veya zamanı geçersiz.');
+  }
+  for (const symbol of researchPairs) {
+    const bars = source.data?.[symbol];
+    if (bars?.length !== 3000 || bars.at(-1).t + researchHour !== source.until) {
+      throw Error(symbol + ' için paket eksik veya kapanış saati uyuşmuyor.');
     }
-    for (const symbol of ['BTCUSDT', 'ETHUSDT']) {
-      const bars = snapshot.data?.[symbol];
-      if (bars?.length !== 3000 || bars.at(-1).t + 3600000 !== snapshot.until) {
-        throw Error(symbol + ' için paket eksik veya kapanış saati uyuşmuyor.');
+  }
+  Research.validate(source.data, researchHour);
+  return source;
+}
+
+async function getClosedBars(symbol, limit, endTime) {
+  const q = new URLSearchParams({symbol, interval:'1h', limit, endTime});
+  return LivePaper.parseBars(await request('https://data-api.binance.vision/api/v3/klines?' + q), Date.now());
+}
+
+async function updateFromBinance(base, until) {
+  const data = Object.fromEntries(await Promise.all(researchPairs.map(async symbol => {
+    const delta = base ? (until - base.until) / researchHour : Infinity;
+    let bars;
+    if (delta >= 0 && delta < 1000) {
+      const latest = await getClosedBars(symbol, Math.max(1, delta), until - 1);
+      const combined = new Map([...base.data[symbol], ...latest].map(bar => [bar.t, bar]));
+      bars = [...combined.values()].sort((a, b) => a.t - b.t).slice(-3000);
+    } else {
+      bars = [];
+      let end = until - 1;
+      for (let i = 0; i < 3; i++) {
+        const page = await getClosedBars(symbol, 1000, end);
+        if (page.length !== 1000) throw Error('Binance geçmiş mumları eksik.');
+        bars = page.concat(bars);
+        end = page[0].t - 1;
       }
     }
-    const age = Date.now() - snapshot.until;
-    const date = new Date(snapshot.until).toLocaleString('tr-TR');
-    const origin = 'GitHub · Binance Spot · son mum kapanışı ' + date +
-      (age >= 2 * 3600000 ? ' · ESKİ VERİ' : '');
-    render({BTCUSDT: snapshot.data.BTCUSDT, ETHUSDT: snapshot.data.ETHUSDT}, [], origin);
+    return [symbol, bars];
+  })));
+  return snapshotFrom({schema:1, source:'Binance Spot', data, until, fetchedAt:Date.now()});
+}
+
+function originOf(snapshot, title) {
+  const date = new Date(snapshot.until).toLocaleString('tr-TR', {timeZone:'Europe/Istanbul'});
+  return title + ' · son kapanış ' + date + ' (TSİ)' +
+    (Date.now() - snapshot.until >= 2 * researchHour ? ' · ESKİ VERİ' : '');
+}
+
+function scheduleResearch(delay) {
+  clearTimeout(researchTimer);
+  if (autoResearch && !document.hidden) researchTimer = setTimeout(() => refreshResearch(), delay);
+}
+
+async function refreshResearch(force = false) {
+  if (document.hidden || el('load').disabled || (!autoResearch && !force)) return;
+  const now = Date.now();
+  const until = Math.floor(now / researchHour) * researchHour;
+  const next = () => Math.max(5000, until + researchHour + 12000 - Date.now());
+  if (!force && refreshedHour === until) { scheduleResearch(next()); return; }
+  if (!force && now - until < 12000) { scheduleResearch(until + 12000 - now); return; }
+  autoResearch = true;
+  el('load').disabled = true;
+  el('file').disabled = true;
+  el('status').textContent = 'Kapanmış Binance mumları yenileniyor…';
+  let delay = 120000;
+  try {
+    if (!baseSnapshot) {
+      try { baseSnapshot = snapshotFrom(await request('./snapshot.json')); }
+      catch (_) {}
+    }
+    let live;
+    try { live = await updateFromBinance(baseSnapshot, until); }
+    catch (error) {
+      if (!baseSnapshot) throw error;
+      render(baseSnapshot.data, [], originOf(baseSnapshot, 'Son veri paketi · Binance güncellemesi alınamadı'));
+      void runExperiment();
+      return;
+    }
+    baseSnapshot = live;
+    render(live.data, [], originOf(live, 'Binance Spot · otomatik güncelleme'));
+    void runExperiment();
+    refreshedHour = until;
+    delay = next();
   } catch (error) {
-    el('status').textContent = 'GitHub veri paketi alınamadı. ' + error.message +
-      (current ? ' Önceki sonuç ekranda.' : '');
+    el('status').textContent = 'Veri alınamadı. ' + error.message + (current ? ' Önceki sonuç ekranda.' : '');
   } finally {
     el('load').disabled = false;
     el('file').disabled = false;
+    scheduleResearch(delay);
   }
-};
+}
+el('load').onclick = () => refreshResearch(true);
+document.addEventListener('visibilitychange', () => {
+  clearTimeout(researchTimer);
+  if (!document.hidden) refreshResearch();
+});
 
 el('file').onchange = async event => {
   const file = event.target.files[0];
@@ -193,6 +266,9 @@ el('file').onchange = async event => {
       ? 'Sentetik test verisi'
       : 'İçe aktarılan JSON · kaynak beyanı doğrulanmadı';
     render(input.data || input, input.news || [], origin);
+    autoResearch = false;
+    clearTimeout(researchTimer);
+    void runExperiment();
   } catch (error) {
     el('status').textContent = 'Veri reddedildi. ' + error.message + (current ? ' Önceki sonuç ekranda.' : '');
   } finally {
@@ -201,6 +277,7 @@ el('file').onchange = async event => {
 };
 
 el('experiment').onclick = runExperiment;
+el('window').onchange = () => { if (current && !el('experiment').disabled) void runExperiment(); };
 el('export').onclick = () => {
   if (!report) return;
   const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], {type: 'application/json'}));
@@ -211,3 +288,5 @@ el('export').onclick = () => {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 };
 
+
+void refreshResearch();
