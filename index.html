@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Coin Tarayıcı · Araştırma</title>
+  <style>
+    *{box-sizing:border-box}
+    body{background:#0b1220;color:#e2e8f0;font:16px system-ui;max-width:1000px;margin:0 auto;padding:20px}
+    a,button{color:#82ebd5}button,select{background:#213347;padding:10px;border:1px solid #526b83;border-radius:8px;color:#e2e8f0}
+    button:disabled{opacity:.55}article{background:#152236;padding:16px;margin:16px 0;border-radius:12px}
+    .controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.scroll{overflow:auto}
+    table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:8px;border-bottom:1px solid #405069;white-space:nowrap}
+    canvas{width:100%;height:auto;background:#0b1220;border-radius:8px}small{color:#b8c9da}
+    .feed{border-bottom:1px solid #405069;padding:12px 0}.feed p{margin:8px 0}
+  </style>
+</head>
+<body>
+
+  <h1>Araştırma ve kaynak masası</h1>
+  <p>Sanal spot araştırması · BTC/USDT ve ETH/USDT · GitHub’da yayımlanan saatlik Binance verisi</p>
+  <article>
+    <h2>Portföy testi</h2>
+    <p>1.000 USDT başlangıç nakdi, en fazla iki pozisyon. Varsayılan alış ve satış ücreti %0,10, kayma %0,05. Aynı mumda stop ve hedef görülürse stop önceliklidir.</p>
+    <div class="controls">
+      <button id="load">GitHub verisini al</button>
+      <label>JSON veri seti <input id="file" type="file" accept=".json"></label>
+      <button id="export" disabled>Sonucu indir</button>
+    </div>
+    <p id="status" role="status">Henüz test çalıştırılmadı.</p>
+    <div id="results"></div>
+  </article>
+  <article>
+    <h2>Walk-forward karşılaştırması</h2>
+    <p>Önceki iki pencere işlem örneklemi, üçüncü pencere strateji seçimi ve bir sonraki pencere ileri test için kullanılır.</p>
+    <div class="controls">
+      <label>Pencere <select id="window"><option value="168">7 gün</option><option value="72">3 gün</option><option value="336">14 gün</option></select></label>
+      <button id="experiment" disabled>İleri dönemleri test et</button>
+    </div>
+    <p id="experiment-status" role="status">Önce yukarıdan mum verisi yükleyin.</p>
+    <div id="folds"></div>
+  </article>
+  <script src="core.js"></script>
+  <script src="research.js"></script>
+  <script src="experiments.js"></script>
+  <script src="research-ui.js"></script>
+</body>
+</html>
