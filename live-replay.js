@@ -12,8 +12,9 @@ const LiveReplay = (() => {
       bidQty:Number.MAX_VALUE, askQty:Number.MAX_VALUE, at};
   }
 
-  function replay(hourly, fine, symbols, from, until, risingTrend) {
+  function replay(hourly, fine, symbols, from, until, risingTrend, maxPositions = paper.initial().maxPositions) {
     const state = paper.initial();
+    state.maxPositions = maxPositions;
     const setups = new Map(), firstEligible = new Map();
     const first = (from - fine[symbols[0]][0].t) / step;
     const end = (until - fine[symbols[0]][0].t) / step;
@@ -88,6 +89,6 @@ const LiveReplay = (() => {
       development:runPeriod(start, holdout), test:runPeriod(holdout, until)};
   }
 
-  return {compare, step};
+  return {compare, replay, step};
 })();
 if (typeof module !== 'undefined') module.exports = LiveReplay;
